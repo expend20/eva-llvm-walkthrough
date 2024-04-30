@@ -1,0 +1,9 @@
+*.exe
+*.bc
+build
+build-ninja
+output.ll
+.cache
+compile_commands.json
+env-setup.cmd
+
