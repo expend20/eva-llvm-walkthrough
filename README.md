@@ -206,3 +206,45 @@ syntax-cli -g src/EvaGrammar.bnf -m LALR1 -o src/EvaParser.h
 > LALR1 -- Look Ahead Left-to-Right single token.
 
 
+# Lecture 6: Symbols | Global variables
+
+* Boolean values
+* Variable declarations
+* Variable initializers
+* Global variables
+* Register and Stack variables
+* Variable access
+
+Three types of variables: Global, Register, Stack Variables.
+
+Global Variables. Stored outside of the function, mutable, but can have only constant
+initializers.
+
+```
+@foo = global i32 42, align 4
+```
+
+Register Variables. Static Single Assignment (SSA) form, no memory manipulations,
+temporary results of operations.
+
+```
+%1 = add i32 1, 2
+%x = add i32 %1, 3
+```
+
+Stack Variables. Load / Store local variables on the stack, names are SSA.
+
+```
+@bar = alloca i32
+store i32 42, i32* %bar
+%1 = load i32, i32* %bar
+```
+
+# Lecture 7: Blocks | Environments
+
+* Blocks: groups of expressions
+* Blocks: local scope
+* Environment
+* Scope chain
+* Variable lookup
+* The Global Environment

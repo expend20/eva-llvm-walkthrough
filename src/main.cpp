@@ -7,8 +7,10 @@ int main() {
      * The program to be executed.
      */
     std::string program = R"(
-    (printf "%d\n" 42)
-)";
+
+    (printf "True: %d\n" (var VERSION 42) )
+
+    )";
 
     /**
      * Compiler instance.

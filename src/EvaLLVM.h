@@ -53,6 +53,8 @@ class EvaLLVM {
                                 /* result */ llvm::Type::getInt32Ty(*context),
                                 /* vararg */ false));
 
+        createGlobalVar("VERSION", builder->getInt32(10));
+
         // 2. Compile main body
         gen(ast);
 
@@ -121,10 +123,25 @@ class EvaLLVM {
             return builder->CreateGlobalStringPtr(str);
         }
 
-        case ExpType::SYMBOL:
-            assert(false && "Symbol not implemented");
-            return nullptr;
+        case ExpType::SYMBOL: {
+            /**
+             * Boolean
+             */
+            if (exp.string == "true") {
+                return builder->getInt1(true);
+            } else if (exp.string == "false") {
+                return builder->getInt1(false);
+            } else {
+                // Variables:
 
+                // 1. Local variables: TODO:
+
+                // 2. Global variables:
+                return module->getNamedGlobal(exp.string)->getInitializer();
+            }
+
+            assert(false && "Symbol not implemented");
+        }
         case ExpType::LIST: {
             // print list
             // if (exp.list.empty()) {
@@ -149,6 +166,15 @@ class EvaLLVM {
                         }
 
                         return builder->CreateCall(printfFn, args);
+                    } else if (tag.string == "var") {
+                        printf("Found var\n");
+                        auto varName = exp.list[1].string;
+                        auto varValue = gen(exp.list[2]);
+                        auto constVar = varValue->getType()->isIntegerTy();
+
+                        createGlobalVar(
+                            varName, llvm::dyn_cast<llvm::Constant>(varValue));
+                        return varValue;
                     }
                 }
             } else {
@@ -157,10 +183,23 @@ class EvaLLVM {
             }
             break;
         }
-
         }
 
         return builder->getInt32(0);
+    }
+
+    /**
+     * Creates a global variable
+     */
+    llvm::GlobalVariable* createGlobalVar(const std::string& name,
+                                          llvm::Constant* init) {
+
+        module->getOrInsertGlobal(name, init->getType());
+        auto var = module->getNamedGlobal(name);
+        var->setAlignment(llvm::MaybeAlign(4));
+        var->setConstant(false);
+        var->setInitializer(init);
+        return var;
     }
 
     /**
@@ -170,7 +209,7 @@ class EvaLLVM {
         // add printf declaration
         auto printfType = llvm::FunctionType::get(
             /* result */ builder->getInt32Ty(),
-            /* format arg */ builder->getInt8PtrTy(),
+            /* format arg */ builder->getPtrTy(),
             /* vararg */ true);
         module->getOrInsertFunction("printf", printfType);
     }
