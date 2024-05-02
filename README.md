@@ -34,6 +34,9 @@ Resume fast
 ```
 vcvarsall.bat x64
 set PATH=%PATH%;z:\llvm\llvm-14.0.6-assertions-RelWithDebInfo\bin
+
+export PATH=$PATH:~/llvm/llvm-project-llvmorg-18.1.4/llvm/build-assertions-install/bin
+cmake --build build --config Release && ./build/eva-llvm && lli output.ll
 ```
 
 Enable assertions on release build with cmake.
@@ -248,3 +251,34 @@ store i32 42, i32* %bar
 * Scope chain
 * Variable lookup
 * The Global Environment
+
+Block Scope
+
+```c++
+int x = 10;
+cout << x; // 10
+{ 
+    int x = 20;
+    cout << x; // 20
+}
+cout << x; // 10
+```
+
+=>
+
+```eva
+(var x 10)
+(printf "%d" x) // 10
+(begin
+  (var x 20)
+  (printf "%d" x) // 20
+)
+(printf "%d" x) // 10
+```
+
+Environment is created every time new block scope is introduced. Enviroments
+are nested, if there is no variable present in a current one, we search in a
+parent environtment.
+
+
+

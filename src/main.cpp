@@ -8,7 +8,14 @@ int main() {
      */
     std::string program = R"(
 
-    (printf "True: %d\n" (var VERSION 42) )
+        //(var VERSION 42)
+
+        //(begin
+        //  (var VERSION "Hello, World!")
+        //  (printf "Block version: %s\n" VERSION )
+        //)
+
+        (printf "True: %d\n" VERSION)
 
     )";
 

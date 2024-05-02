@@ -1,6 +1,8 @@
 #ifndef EvaLLVM_h
 #define EvaLLVM_h
 
+#include "Environment.h"
+
 #include <memory>
 #include <string>
 
@@ -9,7 +11,10 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 
+#include "Environment.h"
 #include "EvaParser.h"
+
+using Env = std::shared_ptr<Environment>;
 
 class EvaLLVM {
 
@@ -17,6 +22,7 @@ class EvaLLVM {
     EvaLLVM() {
         moduleInit();
         setupExternalFunctions();
+        setupGlobalEnvironment();
     };
 
     ~EvaLLVM(){};
@@ -27,7 +33,7 @@ class EvaLLVM {
     void eval(const std::string& program) {
 
         // 1. Parse the program
-        auto ast = praser->parse(program);
+        auto ast = parser->parse("(begin " + program + ")");
 
         // 2. Generate LLVM IR
         compile(ast);
@@ -44,6 +50,24 @@ class EvaLLVM {
 
   private:
     /**
+     * Setup the global environment
+     */
+    void setupGlobalEnvironment() {
+        // Create a global variable for the version
+        const std::map<std::string, llvm::Value*> globalObject{
+            {"VERSION", builder->getInt32(10)}};
+
+        std::map<std::string, llvm::Value*> globalRecord{};
+
+        for (const auto& [name, value] : globalObject) {
+            globalRecord[name] =
+                createGlobalVar(name, llvm::dyn_cast<llvm::Constant>(value));
+        }
+
+        globalEnv = std::make_shared<Environment>(globalRecord, nullptr);
+    }
+
+    /**
      * Compile an expression
      */
     void compile(const Exp& ast) {
@@ -51,12 +75,13 @@ class EvaLLVM {
         fn = createFunction("main",
                             llvm::FunctionType::get(
                                 /* result */ llvm::Type::getInt32Ty(*context),
-                                /* vararg */ false));
+                                /* vararg */ false),
+                            globalEnv);
 
         createGlobalVar("VERSION", builder->getInt32(10));
 
         // 2. Compile main body
-        gen(ast);
+        gen(ast, globalEnv);
 
         // just return 0 for now
         builder->CreateRet(builder->getInt32(0));
@@ -66,14 +91,15 @@ class EvaLLVM {
      * Create a function
      */
     llvm::Function* createFunction(const std::string& fnName,
-                                   llvm::FunctionType* fnType) {
+                                   llvm::FunctionType* fnType, Env env) {
         // first try to get function
         auto fn = module->getFunction(fnName);
         if (fn == nullptr) {
-            fn = createFunctionProto(fnName, fnType);
+            fn = createFunctionProto(fnName, fnType, env);
         }
         // use getOrInsertFunction to avoid redefinition
         createFunctionBlock(fn);
+
         return fn;
     }
 
@@ -81,10 +107,13 @@ class EvaLLVM {
      * Create a function prototype
      */
     llvm::Function* createFunctionProto(const std::string& fnName,
-                                        llvm::FunctionType* fnType) {
+                                        llvm::FunctionType* fnType, Env env) {
         auto fn = llvm::Function::Create(
             fnType, llvm::Function::ExternalLinkage, fnName, *module);
         llvm::verifyFunction(*fn);
+
+        // Create a new environment for the function
+        env->define(fnName, fn);
 
         return fn;
     }
@@ -108,7 +137,7 @@ class EvaLLVM {
     /**
      * Main compile loop
      */
-    llvm::Value* gen(const Exp& exp) {
+    llvm::Value* gen(const Exp& exp, Env env) {
         printf("Generating code for: %d\n", (int)exp.type);
 
         switch (exp.type) {
@@ -133,11 +162,22 @@ class EvaLLVM {
                 return builder->getInt1(false);
             } else {
                 // Variables:
+                auto varName = exp.string;
+                auto varValue = env->lookup(varName);
+                printf("Found variable: %s\n", varName.c_str());
 
                 // 1. Local variables: TODO:
 
                 // 2. Global variables:
-                return module->getNamedGlobal(exp.string)->getInitializer();
+                if (auto globalVar =
+                        llvm::dyn_cast<llvm::GlobalVariable>(varValue)) {
+                    return builder->CreateLoad(
+                        globalVar->getInitializer()->getType(), globalVar,
+                        varName.c_str());
+                } else {
+                    printf("Variable not found: %s\n", varName.c_str());
+                    return varValue;
+                }
             }
 
             assert(false && "Symbol not implemented");
@@ -153,6 +193,13 @@ class EvaLLVM {
             if (!exp.list.empty()) {
                 auto tag = exp.list[0];
                 if (tag.type == ExpType::SYMBOL) {
+
+                    // ----------------------------------------------------
+                    // printf extern function:
+                    //
+                    // (printf "value %d" 42)
+                    //
+                    //
                     if (tag.string == "printf") {
                         printf("Found printf\n");
 
@@ -162,19 +209,38 @@ class EvaLLVM {
                         std::vector<llvm::Value*> args;
 
                         for (size_t i = 1; i < exp.list.size(); i++) {
-                            args.push_back(gen(exp.list[i]));
+                            args.push_back(gen(exp.list[i], env));
                         }
 
                         return builder->CreateCall(printfFn, args);
-                    } else if (tag.string == "var") {
+                    }
+
+                    // ----------------------------------------------------
+                    // var declaration:
+                    //
+                    // (var VERSION 42)
+                    //
+                    //
+                    else if (tag.string == "var") {
                         printf("Found var\n");
                         auto varName = exp.list[1].string;
-                        auto varValue = gen(exp.list[2]);
-                        auto constVar = varValue->getType()->isIntegerTy();
+                        auto varValue = gen(exp.list[2], env);
 
                         createGlobalVar(
                             varName, llvm::dyn_cast<llvm::Constant>(varValue));
                         return varValue;
+                    }
+                    // ----------------------------------------------------
+                    // Block:
+                    // (begin <exp1> <exp2> ... <expN>)
+                    //
+                    else if (tag.string == "begin") {
+                        printf("Found begin\n");
+                        llvm::Value* last = nullptr;
+                        for (size_t i = 1; i < exp.list.size(); i++) {
+                            last = gen(exp.list[i], env); // TODO: local block
+                        }
+                        return last;
                     }
                 }
             } else {
@@ -230,7 +296,7 @@ class EvaLLVM {
         context = std::make_unique<llvm::LLVMContext>();
         module = std::make_unique<llvm::Module>("EvaLLVM", *context);
         builder = std::make_unique<llvm::IRBuilder<>>(*context);
-        praser = std::make_unique<syntax::EvaParser>();
+        parser = std::make_unique<syntax::EvaParser>();
     }
 
     /**
@@ -258,7 +324,12 @@ class EvaLLVM {
     /**
      * The parser
      */
-    std::unique_ptr<syntax::EvaParser> praser;
+    std::unique_ptr<syntax::EvaParser> parser;
+
+    /**
+     * The global environment (symbol table)
+     */
+    Env globalEnv;
 };
 
 #endif // EvaLLVM_h
