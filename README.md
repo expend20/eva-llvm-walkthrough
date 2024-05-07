@@ -280,5 +280,7 @@ Environment is created every time new block scope is introduced. Enviroments
 are nested, if there is no variable present in a current one, we search in a
 parent environtment.
 
+# Lecture 8: Local variables | Stack allocation
+
 
 

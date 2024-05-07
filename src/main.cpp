@@ -8,14 +8,14 @@ int main() {
      */
     std::string program = R"(
 
-        //(var VERSION 42)
-
-        //(begin
-        //  (var VERSION "Hello, World!")
-        //  (printf "Block version: %s\n" VERSION )
-        //)
-
-        (printf "True: %d\n" VERSION)
+        (var x 42)
+        (begin
+          (var x "Hello, World!")
+          (printf "Block version: %s\n" x )
+        )
+        (printf "x: %d\n" x)
+        (set x 43)
+        (printf "x2: %d\n" x)
 
     )";
 

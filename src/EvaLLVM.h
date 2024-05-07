@@ -166,21 +166,13 @@ class EvaLLVM {
                 auto varValue = env->lookup(varName);
                 printf("Found variable: %s\n", varName.c_str());
 
-                // 1. Local variables: TODO:
-
-                // 2. Global variables:
-                if (auto globalVar =
-                        llvm::dyn_cast<llvm::GlobalVariable>(varValue)) {
-                    return builder->CreateLoad(
-                        globalVar->getInitializer()->getType(), globalVar,
-                        varName.c_str());
-                } else {
-                    printf("Variable not found: %s\n", varName.c_str());
-                    return varValue;
+                // 1. Local variables:
+                if (varValue) {
+                    return builder->CreateLoad(varValue->getType(), varValue,
+                                               varName.c_str());
                 }
             }
-
-            assert(false && "Symbol not implemented");
+            std::runtime_error("Symbol not implemented");
         }
         case ExpType::LIST: {
             // print list
@@ -191,7 +183,7 @@ class EvaLLVM {
             //}
 
             if (!exp.list.empty()) {
-                auto tag = exp.list[0];
+                const auto tag = exp.list[0];
                 if (tag.type == ExpType::SYMBOL) {
 
                     // ----------------------------------------------------
@@ -216,19 +208,29 @@ class EvaLLVM {
                     }
 
                     // ----------------------------------------------------
-                    // var declaration:
+                    // Variable delcaration: (var x (+ y 10))
                     //
-                    // (var VERSION 42)
+                    // Typed: (var (x number) 42)
                     //
-                    //
+                    // Note: locals are allocated on the stack
                     else if (tag.string == "var") {
                         printf("Found var\n");
-                        auto varName = exp.list[1].string;
-                        auto varValue = gen(exp.list[2], env);
+                        auto varNameDecl = exp.list[1];
+                        auto varInitDecl = exp.list[2];
+                        auto varName = extractVarName(varNameDecl);
 
-                        createGlobalVar(
-                            varName, llvm::dyn_cast<llvm::Constant>(varValue));
-                        return varValue;
+                        // initializer
+                        auto init = gen(varInitDecl, env);
+
+                        // type
+                        auto varTy = extractVarType(varNameDecl, varInitDecl);
+
+                        // variable
+                        auto varBinding = allocVar(varName, varTy, env);
+
+                        // set value
+                        return builder->CreateStore(init, varBinding);
+
                     }
                     // ----------------------------------------------------
                     // Block:
@@ -237,10 +239,38 @@ class EvaLLVM {
                     else if (tag.string == "begin") {
                         printf("Found begin\n");
                         llvm::Value* last = nullptr;
+
+                        // create new environment
+                        auto record = std::map<std::string, llvm::Value*>{};
+                        auto newEnv =
+                            std::make_shared<Environment>(record, env);
+
                         for (size_t i = 1; i < exp.list.size(); i++) {
-                            last = gen(exp.list[i], env); // TODO: local block
+                            last = gen(exp.list[i], newEnv);
                         }
                         return last;
+                    }
+                    // ----------------------------------------------------
+                    // set:
+                    // (set x 42)
+                    // (set (x string) "Hello, World!")
+                    else if (tag.string == "set") {
+                        printf("Found set\n");
+                        auto varNameDecl = exp.list[1];
+                        auto varInitDecl = exp.list[2];
+                        auto varName = extractVarName(varNameDecl);
+
+                        // initializer
+                        auto init = gen(varInitDecl, env);
+
+                        // type
+                        auto varTy = extractVarType(varNameDecl, varInitDecl);
+
+                        // variable
+                        auto varBinding = env->lookup(varName);
+
+                        // set value
+                        return builder->CreateStore(init, varBinding);
                     }
                 }
             } else {
@@ -252,6 +282,57 @@ class EvaLLVM {
         }
 
         return builder->getInt32(0);
+    }
+
+    /**
+     * Extract the variable name
+     */
+    std::string extractVarName(const Exp& varDecl) {
+        if (varDecl.type == ExpType::SYMBOL) {
+            return varDecl.string;
+        } else if (varDecl.type == ExpType::LIST) {
+            return varDecl.list[0].string;
+        } else {
+            std::runtime_error("Invalid variable declaration");
+        }
+        return "";
+    }
+
+    /**
+     * Extract the variable type
+     */
+    llvm::Type* extractVarType(const Exp& varDecl, const Exp& varInit) {
+        if (varDecl.type == ExpType::SYMBOL) {
+            if (varInit.type == ExpType::NUMBER) {
+                return builder->getInt32Ty();
+            } else if (varInit.type == ExpType::STRING) {
+                return builder->getPtrTy();
+            } else {
+                std::runtime_error("Invalid variable type");
+            }
+        } else if (varDecl.type == ExpType::LIST) {
+            if (varDecl.list[1].string == "number") {
+                return builder->getInt32Ty();
+            } else if (varDecl.list[1].string == "string") {
+                return builder->getPtrTy();
+            } else {
+                std::runtime_error("Invalid variable type");
+            }
+        } else {
+            std::runtime_error("Invalid variable declaration");
+        }
+        return nullptr;
+    }
+
+    /**
+     * Allocate a variable
+     */
+    llvm::Value* allocVar(const std::string& varName, llvm::Type* varTy,
+                          Env env) {
+        varsBuilder->SetInsertPoint(&fn->getEntryBlock());
+        auto var = varsBuilder->CreateAlloca(varTy, nullptr, varName);
+        env->define(varName, var);
+        return var;
     }
 
     /**
@@ -296,6 +377,7 @@ class EvaLLVM {
         context = std::make_unique<llvm::LLVMContext>();
         module = std::make_unique<llvm::Module>("EvaLLVM", *context);
         builder = std::make_unique<llvm::IRBuilder<>>(*context);
+        varsBuilder = std::make_unique<llvm::IRBuilder<>>(*context);
         parser = std::make_unique<syntax::EvaParser>();
     }
 
@@ -315,6 +397,12 @@ class EvaLLVM {
      * The LLVM IR builder
      */
     std::unique_ptr<llvm::IRBuilder<>> builder;
+
+    /**
+     * Special builder for the alloca instruction, it always points to the
+     * beginning of the current function.
+     */
+    std::unique_ptr<llvm::IRBuilder<>> varsBuilder;
 
     /**
      * The current function
