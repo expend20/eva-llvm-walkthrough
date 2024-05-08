@@ -30,7 +30,8 @@ class EvaLLVM {
     /**
      * Execute the program
      */
-    void eval(const std::string& program) {
+    void eval(const std::string& program,
+            const std::string& fileName = "./output.ll") {
 
         // 1. Parse the program
         auto ast = parser->parse("(begin " + program + ")");
@@ -45,7 +46,7 @@ class EvaLLVM {
         module->print(llvm::outs(), nullptr);
 
         // 3. Save module IR to file:
-        saveModuleToFile("./output.ll");
+        saveModuleToFile(fileName);
     }
 
   private:
