@@ -12,6 +12,9 @@ and debugging). Download the sources, then:
 ```
 cmake -B build-assertions -DCMAKE_INSTALL_PREFIX=build-assertions-install -DLLVM_ENABLE_ASSERTIONS=ON -A x64 -T ClangCL -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build-assertions --config RelWithDebInfo --target install
+
+cmake -B build-assertions -DCMAKE_INSTALL_PREFIX=build-assertions-install -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_PROJECTS="clang;lld" -DCMAKE_BUILD_TYPE=Release
+cmake --build build-assertions --config Release --target install -- -j$(nproc)
 ```
 
 Get compile_commands.json. Make IDE work.
@@ -36,7 +39,9 @@ vcvarsall.bat x64
 set PATH=%PATH%;z:\llvm\llvm-14.0.6-assertions-RelWithDebInfo\bin
 
 export PATH=$PATH:~/llvm/18.1.4-assertions-install/bin
+export PATH=$PATH:~/llvm/17.0.1-assertions-install/bin
 cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DLLVM_DIR=~/llvm/18.1.4-assertions-install/lib/cmake/llvm
+cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DLLVM_DIR=~/llvm/17.0.1-assertions-install/lib/cmake/llvm
 cmake --build build --config Release && ./build/eva-llvm && lli output.ll
 ```
 
@@ -283,5 +288,5 @@ parent environtment.
 
 # Lecture 8: Local variables | Stack allocation
 
-# Lecture 9: Binary expressions | Comparison operatorq
+# Lecture 9: Binary expressions | Comparison operators
 

@@ -20,3 +20,4 @@ target_link_libraries(eva-llvm
 )
 
 add_test_executable(test1_blocks src/test/test1_blocks.cpp)
+add_test_executable(test2_arith  src/test/test2_arith.cpp)

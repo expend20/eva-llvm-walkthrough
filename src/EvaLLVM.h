@@ -31,9 +31,10 @@ class EvaLLVM {
      * Execute the program
      */
     void eval(const std::string& program,
-            const std::string& fileName = "./output.ll") {
+              const std::string& fileName = "./output.ll") {
 
         // 1. Parse the program
+        printf("\nGenerating %s...\n\n", fileName.c_str());
         auto ast = parser->parse("(begin " + program + ")");
 
         // 2. Generate LLVM IR
@@ -43,7 +44,10 @@ class EvaLLVM {
         llvm::verifyModule(*module, &llvm::outs());
 
         // Print the generated IR
+        printf("\nProgram (%s):\n%s\n", fileName.c_str(), program.c_str());
+        printf("Generated IR start:\n\n");
         module->print(llvm::outs(), nullptr);
+        printf("\nGenerated IR end\n\n");
 
         // 3. Save module IR to file:
         saveModuleToFile(fileName);
@@ -139,7 +143,7 @@ class EvaLLVM {
      * Main compile loop
      */
     llvm::Value* gen(const Exp& exp, Env env) {
-        printf("Generating code for: %d\n", (int)exp.type);
+        // printf("gen %d\n", (uint32_t)exp.type);
 
         switch (exp.type) {
 
@@ -164,24 +168,19 @@ class EvaLLVM {
             } else {
                 // Variables:
                 auto varName = exp.string;
-                auto varValue = env->lookup(varName);
-                printf("Found variable: %s\n", varName.c_str());
+                // cast to stack allocated value: AllocaInst
+                auto varValue =
+                    llvm::dyn_cast<llvm::AllocaInst>(env->lookup(varName));
 
                 // 1. Local variables:
                 if (varValue) {
-                    return builder->CreateLoad(varValue->getType(), varValue,
-                                               varName.c_str());
+                    return builder->CreateLoad(varValue->getAllocatedType(),
+                                               varValue, varName.c_str());
                 }
             }
             std::runtime_error("Symbol not implemented");
         }
         case ExpType::LIST: {
-            // print list
-            // if (exp.list.empty()) {
-            //    // print error
-            //    printf("Empty list\n");
-            //    return builder->getInt32(0);
-            //}
 
             if (!exp.list.empty()) {
                 const auto tag = exp.list[0];
@@ -194,7 +193,6 @@ class EvaLLVM {
                     //
                     //
                     if (tag.string == "printf") {
-                        printf("Found printf\n");
 
                         const auto printfFn = module->getFunction("printf");
                         assert(printfFn && "Function 'printf' not found");
@@ -215,7 +213,6 @@ class EvaLLVM {
                     //
                     // Note: locals are allocated on the stack
                     else if (tag.string == "var") {
-                        printf("Found var\n");
                         auto varNameDecl = exp.list[1];
                         auto varInitDecl = exp.list[2];
                         auto varName = extractVarName(varNameDecl);
@@ -238,7 +235,6 @@ class EvaLLVM {
                     // (begin <exp1> <exp2> ... <expN>)
                     //
                     else if (tag.string == "begin") {
-                        printf("Found begin\n");
                         llvm::Value* last = nullptr;
 
                         // create new environment
@@ -256,7 +252,6 @@ class EvaLLVM {
                     // (set x 42)
                     // (set (x string) "Hello, World!")
                     else if (tag.string == "set") {
-                        printf("Found set\n");
                         auto varNameDecl = exp.list[1];
                         auto varInitDecl = exp.list[2];
                         auto varName = extractVarName(varNameDecl);
@@ -273,16 +268,72 @@ class EvaLLVM {
                         // set value
                         return builder->CreateStore(init, varBinding);
                     }
+
+                    // ----------------------------------------------------
+                    // Arithmetic operations:
+                    // (+ 1 2)
+                    // (- 1 2)
+                    // (* 1 2)
+                    // (/ 1 2)
+                    else if (tag.string == "+") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateAdd(lhs, rhs);
+                    } else if (tag.string == "-") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateSub(lhs, rhs);
+                    } else if (tag.string == "*") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateMul(lhs, rhs);
+                    } else if (tag.string == "/") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateSDiv(lhs, rhs);
+                    }
+                    // ----------------------------------------------------
+                    // Comparison operations:
+                    // (== 1 2)
+                    // (!= 1 2)
+                    // (< 1 2)
+                    // (<= 1 2)
+                    // (> 1 2)
+                    // (>= 1 2)
+                    else if (tag.string == "==") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateICmpEQ(lhs, rhs);
+                    } else if (tag.string == "!=") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateICmpNE(lhs, rhs);
+                    } else if (tag.string == "<") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateICmpSLT(lhs, rhs);
+                    } else if (tag.string == "<=") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateICmpSLE(lhs, rhs);
+                    } else if (tag.string == ">") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateICmpSGT(lhs, rhs);
+                    } else if (tag.string == ">=") {
+                        auto lhs = gen(exp.list[1], env);
+                        auto rhs = gen(exp.list[2], env);
+                        return builder->CreateICmpSGE(lhs, rhs);
+                    }
                 }
             } else {
-                // print error
-                printf("Empty list\n");
+                std::runtime_error("Empty list");
             }
             break;
         }
         }
-
-        return builder->getInt32(0);
+        printf("Not handled: %d\n", (uint32_t)exp.type);
+        assert(false && "Not implemented");
     }
 
     /**
@@ -322,7 +373,9 @@ class EvaLLVM {
         } else {
             std::runtime_error("Invalid variable declaration");
         }
-        return nullptr;
+        printf("Unknown variable type for %s, assuming int\n",
+               varDecl.string.c_str());
+        return builder->getInt32Ty();
     }
 
     /**

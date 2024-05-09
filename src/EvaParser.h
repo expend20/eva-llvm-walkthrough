@@ -57,7 +57,7 @@
  * Expression type.
  */
 enum class ExpType {
-  NUMBER,
+  NUMBER = 0,
   STRING,
   SYMBOL,
   LIST,
