@@ -227,7 +227,11 @@ class EvaLLVM {
                         auto varBinding = allocVar(varName, varTy, env);
 
                         // set value
-                        return builder->CreateStore(init, varBinding);
+                        assert(varBinding && "Variable not found");
+                        assert(varBinding->getAllocatedType() == varTy &&
+                               "Type mismatch on 'var' element");
+                        builder->CreateStore(init, varBinding);
+                        return init;
 
                     }
                     // ----------------------------------------------------
@@ -263,10 +267,15 @@ class EvaLLVM {
                         auto varTy = extractVarType(varNameDecl, varInitDecl);
 
                         // variable
-                        auto varBinding = env->lookup(varName);
+                        auto varBinding = llvm::dyn_cast<llvm::AllocaInst>(
+                            env->lookup(varName));
 
                         // set value
-                        return builder->CreateStore(init, varBinding);
+                        assert(varBinding && "Variable not found");
+                        assert(varBinding->getAllocatedType() == varTy &&
+                               "Type mismatch on 'set' element");
+                        builder->CreateStore(init, varBinding);
+                        return init;
                     }
 
                     // ----------------------------------------------------
@@ -325,6 +334,61 @@ class EvaLLVM {
                         auto rhs = gen(exp.list[2], env);
                         return builder->CreateICmpSGE(lhs, rhs);
                     }
+
+                    // ----------------------------------------------------
+                    // If statement:
+                    // (if (== x 42) (set x 100) (set x 200))
+                    //
+                    else if (tag.string == "if") {
+                        auto cond = gen(exp.list[1], env);
+                        auto thenBB = createBB("then", fn);
+                        auto elseBB = createBB("else", fn);
+                        auto mergeBB = createBB("ifcont", fn);
+                        builder->CreateCondBr(cond, thenBB, elseBB);
+
+                        // then
+                        builder->SetInsertPoint(thenBB);
+                        auto thenVal = gen(exp.list[2], env);
+                        builder->CreateBr(mergeBB);
+                        thenBB = builder->GetInsertBlock();
+
+                        // else
+                        builder->SetInsertPoint(elseBB);
+                        auto elseVal = gen(exp.list[3], env);
+                        builder->CreateBr(mergeBB);
+                        elseBB = builder->GetInsertBlock();
+
+                        // merge
+                        builder->SetInsertPoint(mergeBB);
+
+                        auto phi = builder->CreatePHI(thenVal->getType(), 2);
+                        phi->addIncoming(thenVal, thenBB);
+                        phi->addIncoming(elseVal, elseBB);
+                        return phi;
+                    }
+
+                    // ----------------------------------------------------
+                    // While loop
+                    // (while (< x 10) (set x (+ x 1)))
+                    //
+                    else if (tag.string == "while") {
+                        auto condBB = createBB("cond", fn);
+                        auto loopBB = createBB("loop", fn);
+                        auto afterBB = createBB("afterloop", fn);
+                        builder->CreateBr(condBB);
+
+                        builder->SetInsertPoint(condBB);
+                        auto cond = gen(exp.list[1], env);
+                        builder->CreateCondBr(cond, loopBB, afterBB);
+
+                        builder->SetInsertPoint(loopBB);
+                        auto body = gen(exp.list[2], env);
+                        builder->CreateBr(condBB);
+
+                        builder->SetInsertPoint(afterBB);
+
+                        return nullptr;
+                    }
                 }
             } else {
                 std::runtime_error("Empty list");
@@ -381,8 +445,8 @@ class EvaLLVM {
     /**
      * Allocate a variable
      */
-    llvm::Value* allocVar(const std::string& varName, llvm::Type* varTy,
-                          Env env) {
+    llvm::AllocaInst* allocVar(const std::string& varName, llvm::Type* varTy,
+                               Env env) {
         varsBuilder->SetInsertPoint(&fn->getEntryBlock());
         auto var = varsBuilder->CreateAlloca(varTy, nullptr, varName);
         env->define(varName, var);

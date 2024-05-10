@@ -288,5 +288,39 @@ parent environtment.
 
 # Lecture 8: Local variables | Stack allocation
 
+```
+    varsBuilder->SetInsertPoint(&fn->getEntryBlock());
+    auto var = varsBuilder->CreateAlloca(varTy, nullptr, varName);
+    ...
+    builder->CreateStore(init, varBinding);
+    ...
+    builder->CreateLoad(varValue->getAllocatedType(), varValue, varName.c_str());
+```
+
 # Lecture 9: Binary expressions | Comparison operators
 
+```
+    builder->CreateICmpEQ(lhs, rhs); // ==
+    builder->CreateICmpNE() // !=
+    builder->CreateICmpSLT() // <
+    builder->CreateICmpSLE() // <=
+    builder->CreateICmpSGT() // >
+    builder->CreateICmpSGE() // >=
+```
+
+# Lecture 10: Control flow: If expressions | While loops
+
+Phi node is a special instruction which sets the result based on the incoming 
+branch.
+
+```
+    builder->CreateBr(mergeBB);
+    ...
+    builder->CreateCondBr(cond, thenBB, elseBB);
+    ...
+    thenBB = builder->GetInsertBlock();
+    ...
+    auto phi = builder->CreatePHI(thenVal->getType(), 2);
+    phi->addIncoming(thenVal, thenBB);
+    phi->addIncoming(elseVal, elseBB);
+```

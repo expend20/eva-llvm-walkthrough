@@ -1,8 +1,17 @@
 #include <string>
 
-#include "EvaLLVM.h"
+#include "../EvaLLVM.h"
 
-int main() {
+int main(int argc, char *argv[]) {
+    /**
+     * Parameters check.
+     */
+
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <filename>" << std::endl;
+        return 1;
+    }
+
     /**
      * The program to be executed.
      */
@@ -28,6 +37,6 @@ int main() {
     /**
      * Generate LLVM IR.
      */
-    vm.eval(program);
+    vm.eval(program, argv[1]);
     return 0;
 }
