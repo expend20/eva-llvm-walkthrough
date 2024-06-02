@@ -16,6 +16,38 @@
 
 using Env = std::shared_ptr<Environment>;
 
+inline std::string exp_type2str(ExpType type) {
+    switch (type) {
+    case ExpType::NUMBER:
+        return "NUMBER";
+    case ExpType::STRING:
+        return "STRING";
+    case ExpType::SYMBOL:
+        return "SYMBOL";
+    case ExpType::LIST:
+        return "LIST";
+    }
+    return "UNKNOWN";
+}
+
+inline std::string exp_list2str(const std::vector<Exp>& list) {
+    std::string str = "( ";
+    for (const auto& exp : list) {
+        if (exp.type == ExpType::NUMBER) {
+            str += std::to_string(exp.number);
+        } else if (exp.type == ExpType::STRING) {
+            str += "\"" + exp.string + "\"";
+        } else if (exp.type == ExpType::SYMBOL) {
+            str += exp.string;
+        } else if (exp.type == ExpType::LIST) {
+            str += exp_list2str(exp.list);
+        }
+        str += " ";
+    }
+    str += ")";
+    return str;
+}
+
 class EvaLLVM {
 
   public:
@@ -165,7 +197,9 @@ class EvaLLVM {
                 return builder->getInt1(true);
             } else if (exp.string == "false") {
                 return builder->getInt1(false);
-            } else {
+            }
+
+            {
                 // Variables:
                 auto varName = exp.string;
                 // cast to stack allocated value: AllocaInst
@@ -177,6 +211,15 @@ class EvaLLVM {
                     return builder->CreateLoad(varValue->getAllocatedType(),
                                                varValue, varName.c_str());
                 }
+            }
+
+            {
+                // Call to a function:
+                auto fn = module->getFunction(exp.string);
+                if (fn) {
+                    return builder->CreateCall(fn);
+                }
+
             }
             std::runtime_error("Symbol not implemented");
         }
@@ -389,15 +432,159 @@ class EvaLLVM {
 
                         return nullptr;
                     }
+
+                    // ----------------------------------------------------
+                    // Function definition
+                    // Untyped:
+                    //   (def square (x) (* x x))
+                    // Typed:
+                    //   (def sum ((a number) (b number)) -> number (+ a b))
+                    //
+                    else if (tag.string == "def") {
+                        auto fnName = exp.list[1];
+                        auto fnParamsDecl = exp.list[2];
+
+                        auto argTypes = getArgTypes(exp);
+                        auto argNames = getArgNames(exp);
+                        auto retType = getRetType(exp);
+
+                        // store insertion point
+                        auto currentBlock = builder->GetInsertBlock();
+                        auto currentFn = fn;
+
+                        fn = createFunction(
+                            fnName.string,
+                            llvm::FunctionType::get(retType, argTypes, false),
+                            env);
+                        Exp fnBody = exp.list[3];
+                        if (exp.list.size() == 6) {
+                            fnBody = exp.list[5];
+                        }
+                        auto fnEnv = std::make_shared<Environment>(
+                            std::map<std::string, llvm::Value*>{}, env);
+                        auto fnArgs = fn->arg_begin();
+                        for (size_t i = 0; i < argNames.size(); i++) {
+                            auto argName = argNames[i];
+                            fnArgs[i].setName(argName);
+                            // store the argument in the function environment
+                            fnEnv->define(argName, &fnArgs[i]);
+                            // initialize the argument
+                            auto arg = allocVar(argName, argTypes[i], fnEnv);
+                            builder->CreateStore(&fnArgs[i], arg);
+                        }
+                        auto ret = gen(fnBody, fnEnv);
+                        builder->CreateRet(ret);
+
+                        // restore insertion point
+                        builder->SetInsertPoint(currentBlock);
+                        fn = currentFn;
+
+                        return fn;
+                    }
+
+                    // ----------------------------------------------------
+                    // Function call
+                    // (square 2)
+                    // try to find the function in the environment
+                    auto fn =
+                        llvm::dyn_cast<llvm::Function>(env->lookup(tag.string));
+                    if (fn) {
+                        std::vector<llvm::Value*> args;
+                        for (size_t i = 1; i < exp.list.size(); i++) {
+                            args.push_back(gen(exp.list[i], env));
+                        }
+                        return builder->CreateCall(fn, args);
+                    }
                 }
+                printf("Not handled LIST: %s\n",
+                       exp_list2str(exp.list).c_str());
             } else {
                 std::runtime_error("Empty list");
             }
             break;
         }
         }
-        printf("Not handled: %d\n", (uint32_t)exp.type);
+        printf("Not handled %s\n", exp_type2str(exp.type).c_str());
         assert(false && "Not implemented");
+    }
+
+    /**
+     * Get the return type
+     */
+    llvm::Type* getRetType(const Exp& exp) {
+        if (exp.list.size() == 4) {
+            return builder->getInt32Ty();
+        } else if (exp.list.size() == 6) {
+            auto possibleArrowStr = exp.list[4];
+            if (possibleArrowStr.type == ExpType::SYMBOL &&
+                possibleArrowStr.string == "->") {
+                auto retType = exp.list[5];
+                if (retType.string == "number") {
+                    return builder->getInt32Ty();
+                } else if (retType.string == "string") {
+                    return builder->getPtrTy();
+                } else {
+                    std::runtime_error("Invalid return type");
+                }
+            }
+        }
+        printf("Unknown return type, assuming int\n");
+        return builder->getInt32Ty();
+    }
+
+    /**
+     * Get the argument types
+     */
+    std::vector<llvm::Type*> getArgTypes(const Exp& exp) {
+        std::vector<llvm::Type*> argTypes;
+        if (exp.list.size() > 2) {
+            auto fnParamsDecl = exp.list[2];
+            for (size_t i = 0; i < fnParamsDecl.list.size(); i++) {
+                auto argDecl = fnParamsDecl.list[i];
+                if (argDecl.type == ExpType::LIST) {
+                    if (argDecl.list.size() == 2) {
+                        auto argType = argDecl.list[1].string;
+                        if (argType == "number") {
+                            argTypes.push_back(builder->getInt32Ty());
+                        } else if (argType == "string") {
+                            argTypes.push_back(builder->getPtrTy());
+                        } else {
+                            std::runtime_error("Invalid argument type");
+                        }
+                    } else {
+                        std::runtime_error("Invalid argument declaration");
+                    }
+                } else if (argDecl.type == ExpType::SYMBOL) {
+                    // assume int if untyped
+                    argTypes.push_back(builder->getInt32Ty());
+                } else {
+                    std::runtime_error("Invalid argument declaration");
+                }
+            }
+        }
+        return argTypes;
+    }
+
+    /**
+     * Get the argument names
+     */
+    std::vector<std::string> getArgNames(const Exp& exp) {
+        std::vector<std::string> argNames;
+        if (exp.list.size() > 2) {
+            auto fnParamsDecl = exp.list[2];
+            for (size_t i = 0; i < fnParamsDecl.list.size(); i++) {
+                auto argDecl = fnParamsDecl.list[i];
+                if (argDecl.type == ExpType::LIST) {
+                    auto argName = argDecl.list[0].string;
+                    argNames.push_back(argName);
+                } else if (argDecl.type == ExpType::SYMBOL) {
+                    argNames.push_back(argDecl.string);
+                } else {
+                    std::runtime_error("Invalid argument declaration");
+                }
+            }
+        }
+        return argNames;
     }
 
     /**
@@ -501,8 +688,8 @@ class EvaLLVM {
 
     /**
      * Global LLVM context
-     * It owns and manages the core "global" data of LLVM's core infrastructure,
-     * including the type and constant uniquing tables.
+     * It owns and manages the core "global" data of LLVM's core
+     * infrastructure, including the type and constant uniquing tables.
      */
     std::unique_ptr<llvm::LLVMContext> context;
 

@@ -314,6 +314,21 @@ Phi node is a special instruction which sets the result based on the incoming
 branch.
 
 ```
+then3:                                            ; preds = %then
+  store i32 10, ptr %x, align 4
+  br label %ifcont5
+
+else4:                                            ; preds = %then
+  store i32 20, ptr %x, align 4
+  br label %ifcont5
+
+ifcont5:                                          ; preds = %else4, %then3
+  %4 = phi i32 [ 10, %then3 ], [ 20, %else4 ]
+```
+
+To emit, use following code:
+
+```
     builder->CreateBr(mergeBB);
     ...
     builder->CreateCondBr(cond, thenBB, elseBB);
@@ -323,4 +338,38 @@ branch.
     auto phi = builder->CreatePHI(thenVal->getType(), 2);
     phi->addIncoming(thenVal, thenBB);
     phi->addIncoming(elseVal, elseBB);
+```
+
+# Lecture 11: Function declarations | Call expression
+
+To create function with parameters:
+
+```
+    // Define the function return type and parameter types
+    llvm::Type* returnType = llvm::Type::getInt32Ty(context);
+    llvm::Type* paramType1 = llvm::Type::getInt32Ty(context);
+    llvm::Type* paramType2 = llvm::Type::getInt32Ty(context);
+
+    // Create the function type
+    std::vector<llvm::Type*> paramTypes = { paramType1, paramType2 };
+    llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, paramTypes, false);
+
+    // Create the function and add it to the module
+    llvm::Function* func = llvm::Function::Create(
+        funcType,
+        llvm::Function::ExternalLinkage,
+        "myFunction",
+        module
+    );
+```
+
+To name the variables:
+
+```
+    // Set names for the function parameters
+    llvm::Function::arg_iterator args = func->arg_begin();
+    llvm::Value* arg1 = args++;
+    arg1->setName("param1");
+    llvm::Value* arg2 = args++;
+    arg2->setName("param2");
 ```
