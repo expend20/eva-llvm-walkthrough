@@ -38,10 +38,8 @@ Resume fast
 vcvarsall.bat x64
 set PATH=%PATH%;z:\llvm\llvm-14.0.6-assertions-RelWithDebInfo\bin
 
-export PATH=$PATH:~/llvm/18.1.4-assertions-install/bin
-export PATH=$PATH:~/llvm/17.0.1-assertions-install/bin
-cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DLLVM_DIR=~/llvm/18.1.4-assertions-install/lib/cmake/llvm
-cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DLLVM_DIR=~/llvm/17.0.1-assertions-install/lib/cmake/llvm
+export PATH=$PATH:~/llvm/18.1.6-assertions-install/bin
+cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DLLVM_DIR=~/llvm/18.1.6-assertions-install/lib/cmake/llvm
 cmake --build build --config Release && ./build/eva-llvm && lli output.ll
 ```
 
@@ -263,7 +261,7 @@ Block Scope
 ```c++
 int x = 10;
 cout << x; // 10
-{ 
+{
     int x = 20;
     cout << x; // 20
 }
@@ -310,7 +308,7 @@ parent environtment.
 
 # Lecture 10: Control flow: If expressions | While loops
 
-Phi node is a special instruction which sets the result based on the incoming 
+Phi node is a special instruction which sets the result based on the incoming
 branch.
 
 ```
@@ -373,3 +371,57 @@ To name the variables:
     llvm::Value* arg2 = args++;
     arg2->setName("param2");
 ```
+
+# Lecture 12: Introduction to Classes | Struct types
+
+```
+; type definition
+%Point = type {
+    i32, ; y [0]
+    i32  ; y [1]
+}
+
+; global variable
+@p = global %Point { i32 10, i32 20 }
+
+; function/method
+define void @Point_constructor(%Point* %self, i32 %x, i32 %y) {
+
+    ; (set (prop self x) x)
+    %x_ptr = getelementptr %Point, %Point* %self, i32 0, i32 0
+    store i32 %x, i32* %x_ptr
+
+    %y_ptr = getelementptr %Point, %Point* %self, i32 0, i32 1
+    store i32 %y, i32* %y_ptr
+
+    ret void
+}
+
+; main example
+define i32 @main() {
+
+    %p = alloca %Point ; stack allocation, TODO: heap allocation
+    call void @Point_constructor(%Point* %p, i32 10, i32 20)
+
+    ; access the property
+    %x_ptr = getelementptr %Point, %Point* %p, i32 0, i32 0
+    %x = load i32, i32* %x_ptr
+
+    ret i32 %x
+}
+```
+
+Note:
+ * No property names
+ * prefixed constructor
+ * notes on GEP
+   * first index is always zero (it's needed for multi-dimensional arrays)
+   * GEP only calculates the offset
+
+```
+@str = global [15 x i8] c"hello, world\0a\00"
+
+@px = getelementptr [15 x i8], [15 x i8]* @str, i32 0, i32 2
+```
+
+
