@@ -16,13 +16,14 @@ int main() {
 
           (def constructor (self x y)
             (begin
-              (set (prop self x) x)
-              (set (prop self y) y)
+              0
+              //(set (prop self x) x)
+              //(set (prop self y) y)
             )
           )
 
           (def calc (self)
-            (+ (prop self x) (prop self y))
+            0 //(+ (prop self x) (prop self y))
           )
         )
       )
