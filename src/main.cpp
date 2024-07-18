@@ -28,6 +28,9 @@ int main() {
         )
       )
 
+      (var p (new Point 1 2))
+      //(print "p.x = %d\n" (prop p x))
+
     )";
 
     /**

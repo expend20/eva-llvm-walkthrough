@@ -40,7 +40,7 @@ set PATH=%PATH%;z:\llvm\llvm-14.0.6-assertions-RelWithDebInfo\bin
 
 export PATH=$PATH:~/llvm/18.1.6-assertions-install/bin
 cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -DLLVM_DIR=~/llvm/18.1.6-assertions-install/lib/cmake/llvm
-cmake --build build --config Release && ./build/eva-llvm && lli output.ll
+cmake --build build --config Release && ./build/eva-llvm && clang-18 output.ll /usr/lib/x86_64-linux-gnu/libgc.so -o output && ./output
 ```
 
 Enable assertions on release build with cmake.
@@ -340,6 +340,14 @@ To emit, use following code:
 
 # Lecture 11: Function declarations | Call expression
 
+* Class declarations
+* LLVM Struct type
+* GEP instruction
+* Aggregate types
+* Field address calculation
+* Property access
+* LLVM class example
+
 To create function with parameters:
 
 ```
@@ -424,4 +432,16 @@ Note:
 @px = getelementptr [15 x i8], [15 x i8]* @str, i32 0, i32 2
 ```
 
+# Lecture 13: Compiling Classes
+
+* Class declaration
+* Class info structure
+* Class methods
+* Self parameter
+
+GC_malloc is a garbage collector function.
+```
+apt-get install libgc-dev
+dpkg -L libgc-dev
+```
 

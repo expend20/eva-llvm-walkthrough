@@ -58,6 +58,13 @@ inline std::string exp_list2str(const std::vector<Exp>& list) {
     return str;
 }
 
+template <typename T> inline std::string dumpValueToString(const T* V) {
+    std::string str;
+    llvm::raw_string_ostream rso(str);
+    V->print(rso);
+    return rso.str();
+}
+
 class EvaLLVM {
 
   public:
@@ -65,9 +72,18 @@ class EvaLLVM {
         moduleInit();
         setupExternalFunctions();
         setupGlobalEnvironment();
+        setupTargetTriple();
     };
 
     ~EvaLLVM(){};
+
+    /**
+     * Setup the target triple
+     */
+    void setupTargetTriple() {
+        // TODO: use default target triple llvm::sys::getDefaultTargetTriple();
+        module->setTargetTriple("x86_64-unknown-linux-gnu");
+    }
 
     /**
      * Execute the program
@@ -185,7 +201,7 @@ class EvaLLVM {
      * Main compile loop
      */
     llvm::Value* gen(const Exp& exp, Env env) {
-        // printf("gen %d\n", (uint32_t)exp.type);
+
         const auto expType = exp_type2str(exp.type);
         if (expType == "LIST") {
             const auto s = exp_list2str(exp.list);
@@ -275,7 +291,14 @@ class EvaLLVM {
                         auto varName = extractVarName(varNameDecl);
                         // special case for class properties
                         if (classType != nullptr) {
-                            return nullptr;
+                            return builder->getInt32(0);
+                        }
+                        // Class instance creation
+                        // (var p (new Point 1 2))
+                        if (varInitDecl.type == ExpType::LIST &&
+                            varInitDecl.list[0].string == "new") {
+                            return createClassInstance(varInitDecl, env,
+                                                       varName);
                         }
 
                         // initializer
@@ -516,7 +539,6 @@ class EvaLLVM {
                     //     ...
                     //   )
                     // )
-
                     else if (tag.string == "class") {
                         createClass(exp, env);
                         return nullptr; // TODO: implement
@@ -542,10 +564,63 @@ class EvaLLVM {
                 std::runtime_error("Empty list");
             }
             break;
-        }
-        }
+        } // case LIST
+        } // switch
         printf("Not handled %s\n", exp_type2str(exp.type).c_str());
         assert(false && "Not implemented");
+    }
+
+    /**
+     * Create a class instance
+     */
+    llvm::Value* createClassInstance(const Exp& exp, Env env,
+                                     std::string& varName) {
+        auto className = exp.list[1].string;
+        auto classType = getClassByName(className);
+        if (classType == nullptr) {
+            auto e = "Class not found: " + className;
+            std::runtime_error(e.c_str());
+        }
+        auto classInfo = classMap_[className];
+        auto instName = varName.empty() ? className + "_inst" : varName;
+
+        // Stack example:
+        // auto instance = builder->CreateAlloca(classType, nullptr, varName);
+
+        // malloc example:
+        auto instance = mallocInsance(classType, "GC_malloc");
+
+        // call the constructor
+        auto constructor = module->getFunction(className + "_constructor");
+        if (constructor == nullptr) {
+            auto e = "Constructor not found for class: " + className;
+            std::runtime_error(e.c_str());
+        }
+        std::vector<llvm::Value*> args;
+        args.push_back(instance);
+        for (size_t i = 2; i < exp.list.size(); i++) {
+            args.push_back(gen(exp.list[i], env));
+        }
+        builder->CreateCall(constructor, args);
+        return instance;
+    }
+
+    /**
+     * Malloc a class instance
+     */
+    llvm::Value* mallocInsance(llvm::StructType* classType,
+                               const std::string& name) {
+        auto instance = builder->CreateCall(
+            module->getFunction("GC_malloc"),
+            builder->getInt32(getTypeSize(classType)), name);
+        return builder->CreateBitCast(instance, classType->getPointerTo());
+    }
+
+    /**
+     * Get type size
+     */
+    size_t getTypeSize(llvm::Type* type) {
+        return module->getDataLayout().getTypeAllocSize(type);
     }
 
     /**
@@ -559,8 +634,8 @@ class EvaLLVM {
         auto className = exp.list[1].string;
         auto classParent = exp.list[2].string;
         auto classBody = exp.list[3];
-        printf("Creating class %s\n", className.c_str());
-        printf("Parent class %s\n", classParent.c_str());
+        // printf("Creating class %s\n", className.c_str());
+        // printf("Parent class %s\n", classParent.c_str());
 
         auto parent =
             classParent == "null" ? nullptr : getClassByName(classParent);
@@ -585,7 +660,6 @@ class EvaLLVM {
 
         // Reset the class type
         classType = nullptr;
-        printf("Class %s created\n", className.c_str());
     }
 
     /**
@@ -603,9 +677,11 @@ class EvaLLVM {
         if (classBody.list[0].string != "begin") {
             std::runtime_error("Invalid class body, missing 'begin' element");
         }
-        printf("Building class info, first element: %s\n",
-               classBody.list[0].string.c_str());
-        // Scan the class body, since the constructor can call methods
+        // printf("Building class info, first element: %s\n",
+        //        classBody.list[0].string.c_str());
+
+        // Shallow scanning of the class body, we need to know all the fields,
+        // methods and their types
         for (size_t i = 1; i < classBody.list.size(); i++) {
             auto& beginLE = classBody.list[i];
 
@@ -613,8 +689,8 @@ class EvaLLVM {
             if (beginLE.type != ExpType::LIST) {
                 std::runtime_error("Invalid class body, expected list element");
             }
-            printf("Building class info, element: %s\n",
-                   exp_list2str(beginLE.list).c_str());
+            // printf("Building class info, element: %s\n",
+            //        exp_list2str(beginLE.list).c_str());
             const auto firstLE = beginLE.list[0].string;
 
             // if var, update a struct
@@ -625,9 +701,11 @@ class EvaLLVM {
                 auto varNameDecl = extractVarName(expName);
                 auto varType = extractVarType(expName, expInit);
                 classMap_[className].fields[varNameDecl] = varType;
-                printf("Building class info, var: %s, init...\n",
-                       varNameDecl.c_str());
-            } else if (firstLE == "def") {
+                // printf("Building class info, var: %s, init...\n",
+                //        varNameDecl.c_str());
+            }
+            // if def, create a function
+            else if (firstLE == "def") {
                 auto fnName = beginLE.list[1];
                 auto fnParamsDecl = beginLE.list[2];
                 auto argTypes = getArgTypes(beginLE);
@@ -643,11 +721,11 @@ class EvaLLVM {
                                                /* args */ argTypes, false),
                                            llvm::Function::ExternalLinkage,
                                            exp.string, *module);
-                printf("Building class info, method: %s\n",
-                       fnName.string.c_str());
+                // printf("Building class info, method: %s\n",
+                //        fnName.string.c_str());
 
             } else {
-                printf("Unknown class body element: %s\n", firstLE.c_str());
+                // printf("Unknown class body element: %s\n", firstLE.c_str());
                 std::runtime_error("Invalid class body element");
             }
         }
@@ -657,7 +735,7 @@ class EvaLLVM {
             fields.push_back(type);
         }
         classType->setBody(fields);
-        printf("Class info built\n");
+        printf("Class info built: %s\n", dumpValueToString(classType).c_str());
     }
 
     /**
@@ -723,8 +801,8 @@ class EvaLLVM {
                 } else if (argDecl.type == ExpType::SYMBOL) {
                     // check if the name is 'self'
                     if (argDecl.string == "self") {
-                        printf("Found 'self' argument\n");
-                        classType->dump();
+                        // printf("Found 'self' argument\n");
+                        // classType->dump();
                         argTypes.push_back(classType->getPointerTo());
                     } else {
                         // assume int if untyped
@@ -837,6 +915,13 @@ class EvaLLVM {
             /* format arg */ builder->getPtrTy(),
             /* vararg */ true);
         module->getOrInsertFunction("printf", printfType);
+
+        // add malloc declaration
+        auto mallocType = llvm::FunctionType::get(
+            /* result */ builder->getPtrTy(),
+            /* size_t arg */ builder->getInt32Ty(),
+            /* vararg */ false);
+        module->getOrInsertFunction("GC_malloc", mallocType);
     }
 
     /**
