@@ -8,30 +8,22 @@ int main() {
      */
     std::string program = R"(
 
-      (class Point null
-        (begin
+        // untyped args
+        (def square (x) (* x x))
+        (var x 2)
+        (set x (square x)) // 4
+        (printf "X: %d\n" x)
 
-          (var x 0)
-          (var y 0)
+        // typed args
+        (def sum ((a number) (b number)) -> number (+ a b))
+        (var y (sum 2 3)) // 5
+        (printf "Y: %d\n" y)
 
-          (def constructor (self x y)
-            (begin
-              (set (prop Point self x) x)
-              (set (prop Point self y) y)
-            )
-          )
-
-          (def calc (self)
-            (+ (prop Point self x) (prop Point self y))
-          )
-        )
-      )
-
-      (var p (new Point 10 20))
-      (printf "p.x = %d\n" (prop Point p x))
-      (printf "p.y = %d\n" (prop Point p y))
-      (var c (Point_calc p))
-      (printf "p.x + p.y = %d\n" c)
+        // function with no parameters
+        (def foo () (begin
+            (printf "Hello, World!\n")
+        ))
+        foo // call without brackets (SYMBOL type)
 
     )";
 

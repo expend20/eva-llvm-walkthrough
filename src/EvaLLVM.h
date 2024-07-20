@@ -232,30 +232,31 @@ class EvaLLVM {
                 return builder->getInt1(false);
             }
 
-            {
-                // Variables:
-                auto varName = exp.string;
-                // cast to stack allocated value: AllocaInst
-                auto varValue =
-                    llvm::dyn_cast<llvm::AllocaInst>(env->lookup(varName));
-                // 1. Local variables:
-                if (varValue) {
-                    return builder->CreateLoad(varValue->getAllocatedType(),
-                                               varValue, varName.c_str());
-                }
-                auto varValuePtr = env->lookup(varName);
-                if (varValuePtr) {
-                    return varValuePtr;
-                }
+            // printf("Calling a function: %s\n", exp.string.c_str());
+            auto fn = module->getFunction(exp.string);
+            if (fn != nullptr) {
+                printf("Function found: %s\n", exp.string.c_str());
+                return builder->CreateCall(fn);
             }
 
-            {
-                // Call to a function:
-                auto fn = module->getFunction(exp.string);
-                if (fn) {
-                    return builder->CreateCall(fn);
-                }
+            // Variables:
+            //printf("Looking up variable: %s\n", exp.string.c_str());
+            auto varName = exp.string;
+            // cast to stack allocated value: AllocaInst
+            auto varValue =
+                llvm::dyn_cast<llvm::AllocaInst>(env->lookup(varName));
+            // 1. Local variables:
+            if (varValue) {
+                return builder->CreateLoad(varValue->getAllocatedType(),
+                                           varValue, varName.c_str());
             }
+
+            // last resort: variables
+            auto varValuePtr = env->lookup(varName);
+            if (varValuePtr) {
+                return varValuePtr;
+            }
+
             throw std::runtime_error("Symbol not implemented");
         }
         case ExpType::LIST: {
@@ -570,12 +571,12 @@ class EvaLLVM {
                     // (square 2)
                     // try to find the function in the environment
                     printf("Looking up function: %s\n", tag.string.c_str());
-                    //auto fn =
-                    //    llvm::dyn_cast<llvm::Function>(env->lookup(tag.string));
+                    // auto fn =
+                    //     llvm::dyn_cast<llvm::Function>(env->lookup(tag.string));
                     auto fn = module->getFunction(tag.string);
                     printf("Lookup result: %s\n",
                            fn ? "Function found" : "Function not found");
-                    //auto anyFn = module->getFunction(tag.string);
+                    // auto anyFn = module->getFunction(tag.string);
                     if (fn) {
                         std::vector<llvm::Value*> args;
                         for (size_t i = 1; i < exp.list.size(); i++) {
@@ -951,8 +952,8 @@ class EvaLLVM {
             } else if (varInit.type == ExpType::LIST) {
                 // TODO: proper type for functions
                 return builder->getInt32Ty();
-                //auto s = "Unknown variable type for '" + varDecl.string + "'";
-                //throw std::runtime_error(s.c_str());
+                // auto s = "Unknown variable type for '" + varDecl.string +
+                // "'"; throw std::runtime_error(s.c_str());
             }
         } else if (varDecl.type == ExpType::LIST) {
             if (varDecl.list[1].string == "number") {
