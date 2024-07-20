@@ -439,9 +439,27 @@ Note:
 * Class methods
 * Self parameter
 
+# Lecture 14: Instances | Heap allocation
+
+* New operator
+* Stack allocation
+* Heap allocation
+* Extern malloc function
+* Garbage Collection
+* Mark-Sweep, libgc
+
 GC_malloc is a garbage collector function.
 ```
 apt-get install libgc-dev
 dpkg -L libgc-dev
 ```
 
+# Lecture 15: Property access
+
+* Prop instruction
+* Field index
+* Struct GEP instruction
+* Getters | Setters
+* Load-Store architecture
+
+TODO: continue with getStructIndex

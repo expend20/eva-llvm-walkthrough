@@ -33,6 +33,16 @@ class Environment : public std::enable_shared_from_this<Environment> {
         return resolve(name)->record_[name];
     }
 
+    /**
+     * Dump
+     */
+    void dump() {
+        printf("Environment Dump:\n");
+        for (auto& pair : record_) {
+            printf("  %s\n", pair.first.c_str());
+        }
+    }
+
   private:
     /**
      * Resolve the environment chain to find the variable

@@ -16,20 +16,22 @@ int main() {
 
           (def constructor (self x y)
             (begin
-              0
-              //(set (prop self x) x)
-              //(set (prop self y) y)
+              (set (prop Point self x) x)
+              (set (prop Point self y) y)
             )
           )
 
           (def calc (self)
-            0 //(+ (prop self x) (prop self y))
+            (+ (prop Point self x) (prop Point self y))
           )
         )
       )
 
-      (var p (new Point 1 2))
-      //(print "p.x = %d\n" (prop p x))
+      (var p (new Point 10 20))
+      (printf "p.x = %d\n" (prop Point p x))
+      (printf "p.y = %d\n" (prop Point p y))
+      (var c (Point_calc p))
+      (printf "p.x + p.y = %d\n" c)
 
     )";
 
