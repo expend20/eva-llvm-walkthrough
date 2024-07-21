@@ -7,7 +7,7 @@
 #include <llvm/IR/Verifier.h>
 
 // dprintf is printf for debug messages, it's enabled with EVA_DEBUG env var
-void dprintf(const char* fmt, ...){
+void dprintf(const char* fmt, ...) {
     static bool debug = std::getenv("EVA_DEBUG");
     if (!debug) {
         return;
@@ -240,328 +240,327 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
         throw std::runtime_error("Symbol not implemented");
     }
     case ExpType::LIST: {
-
-        if (!exp.list.empty()) {
-            const auto tag = exp.list[0];
-            if (tag.type == ExpType::SYMBOL) {
-
-                // ----------------------------------------------------
-                // printf extern function:
-                //
-                // (printf "value %d" 42)
-                //
-                //
-                if (tag.string == "printf") {
-
-                    const auto printfFn = module->getFunction("printf");
-                    assert(printfFn && "Function 'printf' not found");
-
-                    std::vector<llvm::Value*> args;
-
-                    for (size_t i = 1; i < exp.list.size(); i++) {
-                        args.push_back(gen(exp.list[i], env));
-                    }
-
-                    return builder->CreateCall(printfFn, args);
-                }
-
-                // ----------------------------------------------------
-                // Variable delcaration: (var x (+ y 10))
-                //
-                // Typed: (var (x number) 42)
-                //
-                // Note: locals are allocated on the stack
-                else if (tag.string == "var") {
-                    auto varNameDecl = exp.list[1];
-                    auto varInitDecl = exp.list[2];
-                    auto varName = extractVarName(varNameDecl);
-                    // special case for class properties
-                    if (classType != nullptr) {
-                        return builder->getInt32(0);
-                    }
-                    // Class instance creation
-                    // (var p (new Point 1 2))
-                    if (varInitDecl.type == ExpType::LIST &&
-                        varInitDecl.list[0].string == "new") {
-                        return createClassInstance(varInitDecl, env, varName);
-                    }
-
-                    // initializer
-                    auto init = gen(varInitDecl, env);
-
-                    // type
-                    auto varTy = extractVarType(varNameDecl, varInitDecl);
-
-                    // variable
-                    auto varBinding = allocVar(varName, varTy, env);
-
-                    // set value
-                    assert(varBinding && "Variable not found");
-                    assert(varBinding->getAllocatedType() == varTy &&
-                           "Type mismatch on 'var' element");
-                    builder->CreateStore(init, varBinding);
-                    return init;
-
-                }
-                // ----------------------------------------------------
-                // Block:
-                // (begin <exp1> <exp2> ... <expN>)
-                //
-                else if (tag.string == "begin") {
-                    llvm::Value* last = nullptr;
-
-                    // create new environment
-                    auto record = std::map<std::string, llvm::Value*>{};
-                    auto newEnv = std::make_shared<Environment>(record, env);
-
-                    for (size_t i = 1; i < exp.list.size(); i++) {
-                        last = gen(exp.list[i], newEnv);
-                    }
-                    return last;
-                }
-                // ----------------------------------------------------
-                // set:
-                // (set x 42)
-                // (set (x string) "Hello, World!")
-                //
-                // Class property access:
-                // (set (prop self Point x) x)
-                else if (tag.string == "set") {
-
-                    // if it's a property access, call the setter
-                    if (exp.list[1].type == ExpType::LIST &&
-                        exp.list[1].list[0].string == "prop") {
-                        auto newValue = gen(exp.list[2], env);
-                        return accessProperty(exp.list[1], env, newValue);
-                    }
-
-                    auto varNameDecl = exp.list[1];
-                    auto varInitDecl = exp.list[2];
-                    auto varName = extractVarName(varNameDecl);
-
-                    // initializer
-                    auto init = gen(varInitDecl, env);
-
-                    // type
-                    auto varTy = extractVarType(varNameDecl, varInitDecl);
-
-                    // variable
-                    auto varBinding =
-                        llvm::dyn_cast<llvm::AllocaInst>(env->lookup(varName));
-
-                    // set value
-                    assert(varBinding && "Variable not found");
-                    assert(varBinding->getAllocatedType() == varTy &&
-                           "Type mismatch on 'set' element");
-                    builder->CreateStore(init, varBinding);
-                    return init;
-                } // ----------------------------------------------------
-                // Arithmetic operations:
-                // (+ 1 2)
-                // (- 1 2)
-                // (* 1 2)
-                // (/ 1 2)
-                else if (tag.string == "+") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateAdd(lhs, rhs);
-                } else if (tag.string == "-") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateSub(lhs, rhs);
-                } else if (tag.string == "*") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateMul(lhs, rhs);
-                } else if (tag.string == "/") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateSDiv(lhs, rhs);
-                }
-                // ----------------------------------------------------
-                // Comparison operations:
-                // (== 1 2)
-                // (!= 1 2)
-                // (< 1 2)
-                // (<= 1 2)
-                // (> 1 2)
-                // (>= 1 2)
-                else if (tag.string == "==") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateICmpEQ(lhs, rhs);
-                } else if (tag.string == "!=") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateICmpNE(lhs, rhs);
-                } else if (tag.string == "<") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateICmpSLT(lhs, rhs);
-                } else if (tag.string == "<=") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateICmpSLE(lhs, rhs);
-                } else if (tag.string == ">") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateICmpSGT(lhs, rhs);
-                } else if (tag.string == ">=") {
-                    auto lhs = gen(exp.list[1], env);
-                    auto rhs = gen(exp.list[2], env);
-                    return builder->CreateICmpSGE(lhs, rhs);
-                }
-
-                // ----------------------------------------------------
-                // If statement:
-                // (if (== x 42) (set x 100) (set x 200))
-                //
-                else if (tag.string == "if") {
-                    auto cond = gen(exp.list[1], env);
-                    auto thenBB = createBB("then", fn);
-                    auto elseBB = createBB("else", fn);
-                    auto mergeBB = createBB("ifcont", fn);
-                    builder->CreateCondBr(cond, thenBB, elseBB);
-
-                    // then
-                    builder->SetInsertPoint(thenBB);
-                    auto thenVal = gen(exp.list[2], env);
-                    builder->CreateBr(mergeBB);
-                    thenBB = builder->GetInsertBlock();
-
-                    // else
-                    builder->SetInsertPoint(elseBB);
-                    auto elseVal = gen(exp.list[3], env);
-                    builder->CreateBr(mergeBB);
-                    elseBB = builder->GetInsertBlock();
-
-                    // merge
-                    builder->SetInsertPoint(mergeBB);
-
-                    auto phi = builder->CreatePHI(thenVal->getType(), 2);
-                    phi->addIncoming(thenVal, thenBB);
-                    phi->addIncoming(elseVal, elseBB);
-                    return phi;
-                }
-
-                // ----------------------------------------------------
-                // While loop
-                // (while (< x 10) (set x (+ x 1)))
-                //
-                else if (tag.string == "while") {
-                    auto condBB = createBB("cond", fn);
-                    auto loopBB = createBB("loop", fn);
-                    auto afterBB = createBB("afterloop", fn);
-                    builder->CreateBr(condBB);
-
-                    builder->SetInsertPoint(condBB);
-                    auto cond = gen(exp.list[1], env);
-                    builder->CreateCondBr(cond, loopBB, afterBB);
-
-                    builder->SetInsertPoint(loopBB);
-                    auto body = gen(exp.list[2], env);
-                    builder->CreateBr(condBB);
-
-                    builder->SetInsertPoint(afterBB);
-
-                    return nullptr;
-                }
-
-                // ----------------------------------------------------
-                // Function definition
-                // Untyped:
-                //   (def square (x) (* x x))
-                // Typed:
-                //   (def sum ((a number) (b number)) -> number (+ a b))
-                //
-                else if (tag.string == "def") {
-                    auto fnName = exp.list[1];
-                    if (classType != nullptr) {
-                        fnName.string =
-                            classType->getName().str() + "_" + fnName.string;
-                    }
-                    auto fnParamsDecl = exp.list[2];
-
-                    auto argTypes = getArgTypes(exp);
-                    auto argNames = getArgNames(exp);
-                    auto retType = getRetType(exp);
-
-                    // store insertion point
-                    auto currentBlock = builder->GetInsertBlock();
-                    auto currentFn = fn;
-
-                    fn = createFunction(
-                        fnName.string,
-                        llvm::FunctionType::get(retType, argTypes, false), env);
-                    Exp fnBody = exp.list[3];
-                    if (exp.list.size() == 6) {
-                        fnBody = exp.list[5];
-                    }
-                    auto fnEnv = std::make_shared<Environment>(
-                        std::map<std::string, llvm::Value*>{}, env);
-                    auto fnArgs = fn->arg_begin();
-                    for (size_t i = 0; i < argNames.size(); i++) {
-                        auto argName = argNames[i];
-                        fnArgs[i].setName(argName);
-                        // store the argument in the function environment
-                        fnEnv->define(argName, &fnArgs[i]);
-                        // initialize the argument
-                        auto arg = allocVar(argName, argTypes[i], fnEnv);
-                        builder->CreateStore(&fnArgs[i], arg);
-                    }
-                    auto ret = gen(fnBody, fnEnv);
-                    builder->CreateRet(ret);
-
-                    // restore insertion point
-                    builder->SetInsertPoint(currentBlock);
-                    fn = currentFn;
-
-                    return fn;
-                }
-
-                // ----------------------------------------------------
-                // Class definition
-                // (class Point null
-                //   (begin
-                //     (var x 0)
-                //     (var y 0)
-                //
-                //     ...
-                //   )
-                // )
-                else if (tag.string == "class") {
-                    createClass(exp, env);
-                    return nullptr; // TODO: implement
-                }
-
-                // ----------------------------------------------------
-                // Property access getter
-                // (prop Point p x)
-                else if (tag.string == "prop") {
-                    return accessProperty(exp, env);
-                }
-
-                // ----------------------------------------------------
-                // Function call
-                // (square 2)
-                // try to find the function in the environment
-                dprintf("Looking up function: %s\n", tag.string.c_str());
-                // auto fn =
-                //     llvm::dyn_cast<llvm::Function>(env->lookup(tag.string));
-                auto fn = module->getFunction(tag.string);
-                dprintf("Lookup result: %s\n",
-                        fn ? "Function found" : "Function not found");
-                // auto anyFn = module->getFunction(tag.string);
-                if (fn) {
-                    std::vector<llvm::Value*> args;
-                    for (size_t i = 1; i < exp.list.size(); i++) {
-                        args.push_back(gen(exp.list[i], env));
-                    }
-                    return builder->CreateCall(fn, args);
-                }
-            }
-        } else {
+        if (exp.list.empty()) {
             throw std::runtime_error("Empty list");
+        }
+
+        const auto tag = exp.list[0];
+        if (tag.type == ExpType::SYMBOL) {
+
+            // ----------------------------------------------------
+            // printf extern function:
+            //
+            // (printf "value %d" 42)
+            //
+            //
+            if (tag.string == "printf") {
+
+                const auto printfFn = module->getFunction("printf");
+                assert(printfFn && "Function 'printf' not found");
+
+                std::vector<llvm::Value*> args;
+
+                for (size_t i = 1; i < exp.list.size(); i++) {
+                    args.push_back(gen(exp.list[i], env));
+                }
+
+                return builder->CreateCall(printfFn, args);
+            }
+
+            // ----------------------------------------------------
+            // Variable delcaration: (var x (+ y 10))
+            //
+            // Typed: (var (x number) 42)
+            //
+            // Note: locals are allocated on the stack
+            else if (tag.string == "var") {
+                auto varNameDecl = exp.list[1];
+                auto varInitDecl = exp.list[2];
+                auto varName = extractVarName(varNameDecl);
+                // special case for class properties
+                if (classType != nullptr) {
+                    return builder->getInt32(0);
+                }
+                // Class instance creation
+                // (var p (new Point 1 2))
+                if (varInitDecl.type == ExpType::LIST &&
+                    varInitDecl.list[0].string == "new") {
+                    return createClassInstance(varInitDecl, env, varName);
+                }
+
+                // initializer
+                auto init = gen(varInitDecl, env);
+
+                // type
+                auto varTy = extractVarType(varNameDecl, varInitDecl);
+
+                // variable
+                auto varBinding = allocVar(varName, varTy, env);
+
+                // set value
+                assert(varBinding && "Variable not found");
+                assert(varBinding->getAllocatedType() == varTy &&
+                       "Type mismatch on 'var' element");
+                builder->CreateStore(init, varBinding);
+                return init;
+
+            }
+            // ----------------------------------------------------
+            // Block:
+            // (begin <exp1> <exp2> ... <expN>)
+            //
+            else if (tag.string == "begin") {
+                llvm::Value* last = nullptr;
+
+                // create new environment
+                auto record = std::map<std::string, llvm::Value*>{};
+                auto newEnv = std::make_shared<Environment>(record, env);
+
+                for (size_t i = 1; i < exp.list.size(); i++) {
+                    last = gen(exp.list[i], newEnv);
+                }
+                return last;
+            }
+            // ----------------------------------------------------
+            // set:
+            // (set x 42)
+            // (set (x string) "Hello, World!")
+            //
+            // Class property access:
+            // (set (prop self Point x) x)
+            else if (tag.string == "set") {
+
+                // if it's a property access, call the setter
+                if (exp.list[1].type == ExpType::LIST &&
+                    exp.list[1].list[0].string == "prop") {
+                    auto newValue = gen(exp.list[2], env);
+                    return accessProperty(exp.list[1], env, newValue);
+                }
+
+                auto varNameDecl = exp.list[1];
+                auto varInitDecl = exp.list[2];
+                auto varName = extractVarName(varNameDecl);
+
+                // initializer
+                auto init = gen(varInitDecl, env);
+
+                // type
+                auto varTy = extractVarType(varNameDecl, varInitDecl);
+
+                // variable
+                auto varBinding =
+                    llvm::dyn_cast<llvm::AllocaInst>(env->lookup(varName));
+
+                // set value
+                assert(varBinding && "Variable not found");
+                assert(varBinding->getAllocatedType() == varTy &&
+                       "Type mismatch on 'set' element");
+                builder->CreateStore(init, varBinding);
+                return init;
+            } // ----------------------------------------------------
+            // Arithmetic operations:
+            // (+ 1 2)
+            // (- 1 2)
+            // (* 1 2)
+            // (/ 1 2)
+            else if (tag.string == "+") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateAdd(lhs, rhs);
+            } else if (tag.string == "-") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateSub(lhs, rhs);
+            } else if (tag.string == "*") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateMul(lhs, rhs);
+            } else if (tag.string == "/") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateSDiv(lhs, rhs);
+            }
+            // ----------------------------------------------------
+            // Comparison operations:
+            // (== 1 2)
+            // (!= 1 2)
+            // (< 1 2)
+            // (<= 1 2)
+            // (> 1 2)
+            // (>= 1 2)
+            else if (tag.string == "==") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateICmpEQ(lhs, rhs);
+            } else if (tag.string == "!=") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateICmpNE(lhs, rhs);
+            } else if (tag.string == "<") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateICmpSLT(lhs, rhs);
+            } else if (tag.string == "<=") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateICmpSLE(lhs, rhs);
+            } else if (tag.string == ">") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateICmpSGT(lhs, rhs);
+            } else if (tag.string == ">=") {
+                auto lhs = gen(exp.list[1], env);
+                auto rhs = gen(exp.list[2], env);
+                return builder->CreateICmpSGE(lhs, rhs);
+            }
+
+            // ----------------------------------------------------
+            // If statement:
+            // (if (== x 42) (set x 100) (set x 200))
+            //
+            else if (tag.string == "if") {
+                auto cond = gen(exp.list[1], env);
+                auto thenBB = createBB("then", fn);
+                auto elseBB = createBB("else", fn);
+                auto mergeBB = createBB("ifcont", fn);
+                builder->CreateCondBr(cond, thenBB, elseBB);
+
+                // then
+                builder->SetInsertPoint(thenBB);
+                auto thenVal = gen(exp.list[2], env);
+                builder->CreateBr(mergeBB);
+                thenBB = builder->GetInsertBlock();
+
+                // else
+                builder->SetInsertPoint(elseBB);
+                auto elseVal = gen(exp.list[3], env);
+                builder->CreateBr(mergeBB);
+                elseBB = builder->GetInsertBlock();
+
+                // merge
+                builder->SetInsertPoint(mergeBB);
+
+                auto phi = builder->CreatePHI(thenVal->getType(), 2);
+                phi->addIncoming(thenVal, thenBB);
+                phi->addIncoming(elseVal, elseBB);
+                return phi;
+            }
+
+            // ----------------------------------------------------
+            // While loop
+            // (while (< x 10) (set x (+ x 1)))
+            //
+            else if (tag.string == "while") {
+                auto condBB = createBB("cond", fn);
+                auto loopBB = createBB("loop", fn);
+                auto afterBB = createBB("afterloop", fn);
+                builder->CreateBr(condBB);
+
+                builder->SetInsertPoint(condBB);
+                auto cond = gen(exp.list[1], env);
+                builder->CreateCondBr(cond, loopBB, afterBB);
+
+                builder->SetInsertPoint(loopBB);
+                auto body = gen(exp.list[2], env);
+                builder->CreateBr(condBB);
+
+                builder->SetInsertPoint(afterBB);
+
+                return nullptr;
+            }
+
+            // ----------------------------------------------------
+            // Function definition
+            // Untyped:
+            //   (def square (x) (* x x))
+            // Typed:
+            //   (def sum ((a number) (b number)) -> number (+ a b))
+            //
+            else if (tag.string == "def") {
+                auto fnName = exp.list[1];
+                if (classType != nullptr) {
+                    fnName.string =
+                        classType->getName().str() + "_" + fnName.string;
+                }
+                auto fnParamsDecl = exp.list[2];
+
+                auto argTypes = getArgTypes(exp);
+                auto argNames = getArgNames(exp);
+                auto retType = getRetType(exp);
+
+                // store insertion point
+                auto currentBlock = builder->GetInsertBlock();
+                auto currentFn = fn;
+
+                fn = createFunction(
+                    fnName.string,
+                    llvm::FunctionType::get(retType, argTypes, false), env);
+                Exp fnBody = exp.list[3];
+                if (exp.list.size() == 6) {
+                    fnBody = exp.list[5];
+                }
+                auto fnEnv = std::make_shared<Environment>(
+                    std::map<std::string, llvm::Value*>{}, env);
+                auto fnArgs = fn->arg_begin();
+                for (size_t i = 0; i < argNames.size(); i++) {
+                    auto argName = argNames[i];
+                    fnArgs[i].setName(argName);
+                    // store the argument in the function environment
+                    fnEnv->define(argName, &fnArgs[i]);
+                    // initialize the argument
+                    auto arg = allocVar(argName, argTypes[i], fnEnv);
+                    builder->CreateStore(&fnArgs[i], arg);
+                }
+                auto ret = gen(fnBody, fnEnv);
+                builder->CreateRet(ret);
+
+                // restore insertion point
+                builder->SetInsertPoint(currentBlock);
+                fn = currentFn;
+
+                return fn;
+            }
+
+            // ----------------------------------------------------
+            // Class definition
+            // (class Point null
+            //   (begin
+            //     (var x 0)
+            //     (var y 0)
+            //
+            //     ...
+            //   )
+            // )
+            else if (tag.string == "class") {
+                createClass(exp, env);
+                return nullptr;
+            }
+
+            // ----------------------------------------------------
+            // Property access getter
+            // (prop Point p x)
+            else if (tag.string == "prop") {
+                return accessProperty(exp, env);
+            }
+
+            // ----------------------------------------------------
+            // Function call
+            // (square 2)
+            // try to find the function in the environment
+            dprintf("Looking up function: %s\n", tag.string.c_str());
+            // auto fn =
+            //     llvm::dyn_cast<llvm::Function>(env->lookup(tag.string));
+            auto fn = module->getFunction(tag.string);
+            dprintf("Lookup result: %s\n",
+                    fn ? "Function found" : "Function not found");
+            // auto anyFn = module->getFunction(tag.string);
+            if (fn) {
+                std::vector<llvm::Value*> args;
+                for (size_t i = 1; i < exp.list.size(); i++) {
+                    args.push_back(gen(exp.list[i], env));
+                }
+                return builder->CreateCall(fn, args);
+            }
         }
         break;
     } // case LIST
@@ -694,19 +693,14 @@ void EvaLLVM::createClass(const Exp& exp, Env env) {
     // printf("Creating class %s\n", className.c_str());
     // printf("Parent class %s\n", classParent.c_str());
 
-    auto parent = classParent == "null" ? nullptr : getClassByName(classParent);
-
     // current class
     classType = llvm::StructType::create(*context, className);
 
-    if (parent != nullptr) {
-        inheritClass(classType, className);
-    } else {
-        classMap_[className] = {/* class */ classType,
-                                /* parent */ parent,
-                                /* fields */ {},
-                                /* methods */ {}};
-    }
+    inheritClass(classType, classParent);
+    classMap_[className].classType = classType;
+    classMap_[className].parent = classParent;
+    // fields are already set in inheritClass if any
+    classMap_[className].methods = {};
 
     // Scan the class body, since the constructor can call methods
     buildClassInfo(classType, exp, env);
@@ -734,8 +728,8 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
     if (classBody.list[0].string != "begin") {
         throw std::runtime_error("Invalid class body, missing 'begin' element");
     }
-    // printf("Building class info, first element: %s\n",
-    //        classBody.list[0].string.c_str());
+    dprintf("Building class info, first element: %s\n",
+            classBody.list[0].string.c_str());
 
     // Shallow scanning of the class body, we need to know all the fields,
     // methods and their types
@@ -747,8 +741,8 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
             throw std::runtime_error(
                 "Invalid class body, expected list element");
         }
-        // printf("Building class info, element: %s\n",
-        //        exp_list2str(beginLE.list).c_str());
+        dprintf("Building class info, element: %s\n",
+                exp_list2str(beginLE.list).c_str());
         const auto firstLE = beginLE.list[0].string;
 
         // if var, update a struct
@@ -759,8 +753,8 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
             auto varNameDecl = extractVarName(expName);
             auto varType = extractVarType(expName, expInit);
             classMap_[className].fields[varNameDecl] = varType;
-            // printf("Building class info, var: %s, init...\n",
-            //        varNameDecl.c_str());
+            dprintf("Building class info, var: %s.%s, init...\n",
+                   className.c_str(), varNameDecl.c_str());
         }
         // if def, create a function
         else if (firstLE == "def") {
@@ -789,6 +783,7 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
     // init struct fields
     std::vector<llvm::Type*> fields;
     for (const auto& [name, type] : classMap_[className].fields) {
+        dprintf("Adding field final: %s.%s\n", className.c_str(), name.c_str());
         fields.push_back(type);
     }
     classType->setBody(fields);
@@ -800,7 +795,34 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
  */
 void EvaLLVM::inheritClass(llvm::StructType* classType,
                            const std::string& name) {
-    // TODO: implement
+    // get existing class info
+    std::string varName = name;
+    // collect all parent classes
+    std::vector<std::string> parents;
+    while (!varName.empty() && varName != "null") {
+        parents.push_back(varName);
+        varName = classMap_[varName].parent;
+        dprintf("Parent class: %s\n", varName.c_str());
+    }
+
+    // collect all the fields and methods, starting from the last parent
+    std::vector<std::pair<std::string, llvm::Type*>> fields;
+    for (auto it = parents.rbegin(); it != parents.rend(); ++it) {
+        auto parentName = *it;
+        auto parentInfo = classMap_[parentName];
+        for (const auto& [name, type] : parentInfo.fields) {
+            dprintf("Inheriting field: %s\n", name.c_str());
+            fields.push_back({name, type});
+        }
+    }
+
+    // add the fields to the class
+    const auto currentClassName = classType->getName().str();
+    for (const auto& [name, type] : fields) {
+        dprintf("Adding field: %s.%s\n", currentClassName.c_str(),
+                name.c_str());
+        classMap_[currentClassName].fields[name] = type;
+    }
 }
 
 /**

@@ -474,4 +474,9 @@ dpkg -L libgc-dev
 * Getters | Setters
 * Load-Store architecture
 
-TODO: continue with getStructIndex
+# Lecture 16: Class Inheritance | vTable
+* Class inheritance
+* Virtual Table (vTable)
+* Methods storage
+* Dynamic dispatch
+* Generic methods

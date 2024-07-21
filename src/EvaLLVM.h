@@ -23,7 +23,7 @@ using Env = std::shared_ptr<Environment>;
  */
 struct ClassInfo {
     llvm::StructType* classType;
-    llvm::StructType* parent;
+    std::string parent;
     std::map<std::string, llvm::Type*> fields;
     std::map<std::string, llvm::Function*> methods;
 };

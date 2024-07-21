@@ -8,22 +8,50 @@ int main() {
      */
     std::string program = R"(
 
-        // untyped args
-        (def square (x) (* x x))
-        (var x 2)
-        (set x (square x)) // 4
-        (printf "X: %d\n" x)
+      (class Point null
+        (begin
 
-        // typed args
-        (def sum ((a number) (b number)) -> number (+ a b))
-        (var y (sum 2 3)) // 5
-        (printf "Y: %d\n" y)
+          (var x 0)
+          (var y 0)
 
-        // function with no parameters
-        (def foo () (begin
-            (printf "Hello, World!\n")
-        ))
-        foo // call without brackets (SYMBOL type)
+          (def constructor (self x y)
+            (begin
+              (set (prop Point self x) x)
+              (set (prop Point self y) y)
+            )
+          )
+
+          (def calc (self)
+            (+ (prop Point self x) (prop Point self y))
+          )
+        )
+      )
+
+      (class Point3D Point
+        (begin
+
+          (var z 0)
+
+          (def constructor (self x y z)
+            (begin
+              (Point_constructor self x y)
+              (set (prop Point3D self z) z)
+            )
+          )
+
+          (def calc (self)
+            (+ (Point_calc self) (prop Point3D self z))
+          )
+        )
+      )
+
+      // constructor is called automatically
+      (var p (new Point3D 10 20 30))
+
+      // due to opaque pointers we need to specify at type
+      (printf "p.x = %d\n" (prop Point3D p x))
+      (printf "p.y = %d\n" (prop Point3D p y))
+      (printf "p.z = %d\n" (prop Point3D p z))
 
     )";
 
