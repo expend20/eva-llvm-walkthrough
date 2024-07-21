@@ -1,0 +1,35 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+
+    - name: Install LLVM and Clang
+      uses: KyleMayes/install-llvm-action@v2
+      with:
+        version: "17"
+
+    - name: Install libgc
+      run: sudo apt-get update && sudo apt-get install -y libgc-dev
+
+    - name: Configure CMake Project
+      run: EVA_TESTS=1 cmake -B build
+
+    - name: Build Project
+      run: cmake --build build --config Release
+
+    - name: Run Project
+      run: ./build/eva-llvm

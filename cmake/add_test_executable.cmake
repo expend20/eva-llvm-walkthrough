@@ -27,7 +27,7 @@ function(add_test_executable_gc TARGET_NAME SOURCE_FILE)
         POST_BUILD
         COMMAND ${TARGET_NAME} ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.ll
         # TODO: get rid of hardcoded path
-        COMMAND clang-18
+        COMMAND clang
             ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.ll
             /usr/lib/x86_64-linux-gnu/libgc.so
             -o ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}
