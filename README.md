@@ -1,6 +1,18 @@
 # Programming Language with LLVM
 
-[sources](https://github.com/DmitrySoshnikov/eva-llvm-source).
+Based on walktrough of [sources](https://github.com/DmitrySoshnikov/eva-llvm-source).
+
+## Build
+
+```
+cmake -B build -DLLVM_DIR=~/llvm/18.1.6-assertions-install/lib/cmake/llvm
+cmake --build build --config Release && ./build/eva-llvm
+```
+
+Environment variables to set-up:
+* `EVA_TESTS` - enables tests.
+* `EVA_DEBUG` - enables debug output input processing.
+* `EVA_COUT` - prints output to the console in addition to .ll file.
 
 ## Environment setup
 

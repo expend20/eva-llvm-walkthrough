@@ -1,10 +1,11 @@
+# TODO: add dependencies on test file results change (arguments for diff command)
 function(add_test_executable TARGET_NAME SOURCE_FILE)
     add_executable(
         ${TARGET_NAME}
         ${SOURCE_FILE})
     target_link_libraries(
         ${TARGET_NAME}
-        PRIVATE LLVMAnalysis LLVMMC LLVMObject LLVMSupport)
+        PRIVATE LLVMAnalysis LLVMMC LLVMObject LLVMSupport eva-llvm-lib)
     add_custom_command(
         TARGET ${TARGET_NAME}
         POST_BUILD
@@ -20,7 +21,7 @@ function(add_test_executable_gc TARGET_NAME SOURCE_FILE)
         ${SOURCE_FILE})
     target_link_libraries(
         ${TARGET_NAME}
-        PRIVATE LLVMAnalysis LLVMMC LLVMObject LLVMSupport)
+        PRIVATE LLVMAnalysis LLVMMC LLVMObject LLVMSupport eva-llvm-lib)
     add_custom_command(
         TARGET ${TARGET_NAME}
         POST_BUILD
