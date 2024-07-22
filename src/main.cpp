@@ -16,13 +16,16 @@ int main() {
 
           (def constructor (self x y)
             (begin
-              (set (prop Point self x) x)
-              (set (prop Point self y) y)
+              (set (prop self x) x)
+              (set (prop self y) y)
             )
           )
 
           (def calc (self)
-            (+ (prop Point self x) (prop Point self y))
+            (begin
+              (printf "Point.calc\n")
+              (+ (prop self x) (prop self y))
+            )
           )
         )
       )
@@ -34,13 +37,17 @@ int main() {
 
           (def constructor (self x y z)
             (begin
-              (Point_constructor self x y)
-              (set (prop Point3D self z) z)
+              (printf "Point3D.constructor\n")
+              (super self constructor x y)
+              (set (prop self z) z)
             )
           )
 
           (def calc (self)
-            (+ (Point_calc self) (prop Point3D self z))
+            (begin
+              (printf "Point3D.calc\n")
+              (+ (super self calc) (prop self z))
+            )
           )
         )
       )
@@ -48,10 +55,10 @@ int main() {
       // constructor is called automatically
       (var p (new Point3D 10 20 30))
 
-      // due to opaque pointers we need to specify at type
-      (printf "p.x = %d\n" (prop Point3D p x))
-      (printf "p.y = %d\n" (prop Point3D p y))
-      (printf "p.z = %d\n" (prop Point3D p z))
+      (printf "p.x = %d\n" (prop p x))
+      (printf "p.y = %d\n" (prop p y))
+      (printf "p.z = %d\n" (prop p z))
+      (printf "p.x + p.y + p.z = %d\n" (method p calc))
 
     )";
 

@@ -1,0 +1,7 @@
+Point3D.constructor
+p.x = 10
+p.y = 20
+p.z = 30
+Point3D.calc
+Point.calc
+p.x + p.y + p.z = 60

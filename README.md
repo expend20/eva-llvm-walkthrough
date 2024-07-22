@@ -1,6 +1,6 @@
 # Programming Language with LLVM
 
-Based on walktrough of [sources](https://github.com/DmitrySoshnikov/eva-llvm-source).
+Based on [this labs](https://github.com/DmitrySoshnikov/eva-llvm-source).
 
 ## Build
 

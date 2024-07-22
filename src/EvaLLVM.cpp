@@ -97,14 +97,15 @@ void EvaLLVM::eval(const std::string& program, const std::string& fileName) {
  */
 void EvaLLVM::setupGlobalEnvironment() {
     // Create a global variable for the version
-    const std::map<std::string, llvm::Value*> globalObject{
-        {"VERSION", builder->getInt32(10)}};
+    std::map<std::string, EnvValueType> globalObject;
+    globalObject["VERSION"] = Environment::make_value(builder->getInt32(10));
 
-    std::map<std::string, llvm::Value*> globalRecord{};
+    std::map<std::string, EnvValueType> globalRecord{};
 
     for (const auto& [name, value] : globalObject) {
-        globalRecord[name] =
-            createGlobalVar(name, llvm::dyn_cast<llvm::Constant>(value));
+        globalRecord[name] = {
+            createGlobalVar(name, llvm::dyn_cast<llvm::Constant>(value.value)),
+            nullptr};
     }
 
     globalEnv = std::make_shared<Environment>(globalRecord, nullptr);
@@ -157,7 +158,7 @@ llvm::Function* EvaLLVM::createFunctionProto(const std::string& fnName,
     llvm::verifyFunction(*fn);
 
     // Create a new environment for the function
-    env->define(fnName, fn);
+    env->define(fnName, fn, fn->getType());
 
     return fn;
 }
@@ -224,7 +225,8 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
         // printf("Looking up variable: %s\n", exp.string.c_str());
         auto varName = exp.string;
         // cast to stack allocated value: AllocaInst
-        auto varValue = llvm::dyn_cast<llvm::AllocaInst>(env->lookup(varName));
+        auto varValue =
+            llvm::dyn_cast<llvm::AllocaInst>(env->lookup_value(varName));
         // 1. Local variables:
         if (varValue) {
             return builder->CreateLoad(varValue->getAllocatedType(), varValue,
@@ -232,7 +234,7 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
         }
 
         // last resort: variables
-        auto varValuePtr = env->lookup(varName);
+        auto varValuePtr = env->lookup_value(varName);
         if (varValuePtr) {
             return varValuePtr;
         }
@@ -277,6 +279,7 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                 auto varNameDecl = exp.list[1];
                 auto varInitDecl = exp.list[2];
                 auto varName = extractVarName(varNameDecl);
+                dprintf("Variable declaration: %s\n", varName.c_str());
                 // special case for class properties
                 if (classType != nullptr) {
                     return builder->getInt32(0);
@@ -293,9 +296,14 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
 
                 // type
                 auto varTy = extractVarType(varNameDecl, varInitDecl);
+                auto ptrTy = varTy->isPointerTy();
+                dprintf("Variable type: %s, is ptr %d\n",
+                        dumpValueToString(varTy).c_str(), ptrTy);
 
                 // variable
                 auto varBinding = allocVar(varName, varTy, env);
+                dprintf("Variable binding: %s\n",
+                        dumpValueToString(varBinding).c_str());
 
                 // set value
                 assert(varBinding && "Variable not found");
@@ -313,7 +321,7 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                 llvm::Value* last = nullptr;
 
                 // create new environment
-                auto record = std::map<std::string, llvm::Value*>{};
+                auto record = std::map<std::string, EnvValueType>{};
                 auto newEnv = std::make_shared<Environment>(record, env);
 
                 for (size_t i = 1; i < exp.list.size(); i++) {
@@ -348,8 +356,8 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                 auto varTy = extractVarType(varNameDecl, varInitDecl);
 
                 // variable
-                auto varBinding =
-                    llvm::dyn_cast<llvm::AllocaInst>(env->lookup(varName));
+                auto varBinding = llvm::dyn_cast<llvm::AllocaInst>(
+                    env->lookup_value(varName));
 
                 // set value
                 assert(varBinding && "Variable not found");
@@ -500,13 +508,16 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                     fnBody = exp.list[5];
                 }
                 auto fnEnv = std::make_shared<Environment>(
-                    std::map<std::string, llvm::Value*>{}, env);
+                    std::map<std::string, EnvValueType>{}, env);
                 auto fnArgs = fn->arg_begin();
                 for (size_t i = 0; i < argNames.size(); i++) {
                     auto argName = argNames[i];
+                    dprintf("Parsing args: %s, class %p\n", argName.c_str(),
+                            classType);
                     fnArgs[i].setName(argName);
                     // store the argument in the function environment
-                    fnEnv->define(argName, &fnArgs[i]);
+                    fnEnv->define(argName, &fnArgs[i],
+                                  classType); // TODO: needed?
                     // initialize the argument
                     auto arg = allocVar(argName, argTypes[i], fnEnv);
                     builder->CreateStore(&fnArgs[i], arg);
@@ -514,6 +525,9 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                 auto ret = gen(fnBody, fnEnv);
                 builder->CreateRet(ret);
 
+                auto typeStr = dumpValueToString(fn->getFunctionType());
+                dprintf("Function defined: %s %s\n", fnName.string.c_str(),
+                        typeStr.c_str());
                 // restore insertion point
                 builder->SetInsertPoint(currentBlock);
                 fn = currentFn;
@@ -542,6 +556,87 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
             else if (tag.string == "prop") {
                 return accessProperty(exp, env);
             }
+
+            // ----------------------------------------------------
+            // Method / super call
+            // (method|super p calc)
+            else if (tag.string == "method" || tag.string == "super") {
+                auto instName = exp.list[1].string;
+                auto methodName = exp.list[2].string;
+                auto inst = gen(instName, env);
+                auto type = env->lookup(instName).type;
+                dprintf("Method call: %s.%s class %p\n", instName.c_str(),
+                        methodName.c_str(), type);
+                auto className = type->getStructName().str();
+                dprintf("Class name: %s\n", className.c_str());
+                if (tag.string == "super") {
+                    className = classMap_[className].parent;
+                }
+                auto funcName = className + "_" + methodName;
+                auto fn = module->getFunction(funcName);
+                if (fn == nullptr) {
+                    auto e = "Method not found: " + funcName;
+                    throw std::runtime_error(e.c_str());
+                }
+                std::vector<llvm::Value*> args;
+                args.push_back(inst);
+                for (size_t i = 3; i < exp.list.size(); i++) {
+                    args.push_back(gen(exp.list[i], env));
+                }
+                dprintf("Calling method: %s\n", funcName.c_str());
+                return builder->CreateCall(fn, args);
+            }
+
+            /*
+            // ----------------------------------------------------
+            // Method call
+            // (method p calc)
+            else if (tag.string == "method") {
+                // TODO: length check
+                auto instName = exp.list[1].string;
+                auto methodName = exp.list[2].string;
+                auto inst = gen(instName, env);
+                auto type = env->lookup(instName).type;
+                auto className = type->getStructName().str();
+                auto funcName = className + "_" + methodName;
+                auto fn = module->getFunction(funcName);
+                if (fn == nullptr) {
+                    auto e = "Method not found: " + funcName;
+                    throw std::runtime_error(e.c_str());
+                }
+                std::vector<llvm::Value*> args;
+                args.push_back(inst);
+                for (size_t i = 3; i < exp.list.size(); i++) {
+                    args.push_back(gen(exp.list[i], env));
+                }
+                dprintf("Calling method: %s\n", funcName.c_str());
+                return builder->CreateCall(fn, args);
+            }
+
+            // ----------------------------------------------------
+            // Super call
+            // (super self constructor x y)
+            else if (tag.string == "super") {
+                auto instName = exp.list[1].string;
+                auto methodName = exp.list[2].string;
+                auto inst = gen(instName, env);
+                auto currentClassName = classType->getName().str();
+                auto parentClassName = classMap_[currentClassName].parent;
+                auto funcName = parentClassName + "_" + methodName;
+                auto fn = module->getFunction(funcName);
+                if (fn == nullptr) {
+                    auto e = "Method not found: " + funcName;
+                    throw std::runtime_error(e.c_str());
+                }
+                std::vector<llvm::Value*> args;
+                args.push_back(inst);
+                for (size_t i = 3; i < exp.list.size(); i++) {
+                    args.push_back(gen(exp.list[i], env));
+                }
+                dprintf("Calling method: %s\n", funcName.c_str());
+                return builder->CreateCall(fn, args);
+            }
+            */
 
             // ----------------------------------------------------
             // Function call
@@ -578,18 +673,17 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
 llvm::Value* EvaLLVM::accessProperty(const Exp& exp, Env env,
                                      llvm::Value* newValue) {
     dprintf("calling gen to resolve prop...\n");
-    auto className = exp.list[1].string;
-    auto instName = exp.list[2].string;
-    auto varName = exp.list[3].string;
+    auto instName = exp.list[1].string;
+    auto varName = exp.list[2].string;
     auto inst = gen(instName, env);
+    auto type = env->lookup(instName).type;
+    auto className = type->getStructName().str();
     dprintf("resolved prop... %s\n", dumpValueToString(inst).c_str());
-    auto obj = exp.list[2].string;
-    auto type = getClassByName(className);
     auto classInfo = classMap_[className];
-    dprintf("Getting property %s from %s\n", obj.c_str(),
+    dprintf("Getting property %s from %s\n", varName.c_str(),
             dumpValueToString(type).c_str());
     if (type == nullptr) {
-        auto e = "Class not found: " + obj;
+        auto e = "Class not found: " + varName;
         throw std::runtime_error(e.c_str());
     }
     const auto structIdx = getStructIndex(type, varName);
@@ -616,6 +710,8 @@ size_t EvaLLVM::getStructIndex(llvm::Type* type, const std::string& field) {
     auto prop = classInfo.fields.begin();
     for (size_t i = 0; i < fields.size(); i++) {
         if (prop->first == field) {
+            dprintf("Field found: %s.%s at index %lu\n", structName.c_str(),
+                    field.c_str(), i);
             return i;
         }
         prop++;
@@ -655,7 +751,8 @@ llvm::Value* EvaLLVM::createClassInstance(const Exp& exp, Env env,
     for (size_t i = 2; i < exp.list.size(); i++) {
         args.push_back(gen(exp.list[i], env));
     }
-    env->define(instName, instance);
+    dprintf("Creating class instance: %s...\n", instName.c_str());
+    env->define(instName, instance, classType);
     dprintf("Creating class instance: %s\n", instName.c_str());
     builder->CreateCall(constructor, args);
     return instance;
@@ -754,7 +851,7 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
             auto varType = extractVarType(expName, expInit);
             classMap_[className].fields[varNameDecl] = varType;
             dprintf("Building class info, var: %s.%s, init...\n",
-                   className.c_str(), varNameDecl.c_str());
+                    className.c_str(), varNameDecl.c_str());
         }
         // if def, create a function
         else if (firstLE == "def") {
@@ -971,7 +1068,7 @@ llvm::AllocaInst* EvaLLVM::allocVar(const std::string& varName,
                                     llvm::Type* varTy, Env env) {
     varsBuilder->SetInsertPoint(&fn->getEntryBlock());
     auto var = varsBuilder->CreateAlloca(varTy, nullptr, varName);
-    env->define(varName, var);
+    env->define(varName, var, classType ? classType : varTy);
     return var;
 }
 

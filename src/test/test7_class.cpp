@@ -1,3 +1,4 @@
+
 #include <iostream>
 
 #include "../EvaLLVM.h"
@@ -31,23 +32,43 @@ int main(int argc, char *argv[]) {
           )
 
           (def calc (self)
-            (+ (prop self x) (prop self y))
+            (begin
+              (printf "Point.calc\n")
+              (+ (prop self x) (prop self y))
+            )
+          )
+        )
+      )
+
+      (class Point3D Point
+        (begin
+
+          (var z 0)
+
+          (def constructor (self x y z)
+            (begin
+              (printf "Point3D.constructor\n")
+              (super self constructor x y)
+              (set (prop self z) z)
+            )
+          )
+
+          (def calc (self)
+            (begin
+              (printf "Point3D.calc\n")
+              (+ (super self calc) (prop self z))
+            )
           )
         )
       )
 
       // constructor is called automatically
-      (var p (new Point 10 20))
+      (var p (new Point3D 10 20 30))
 
-      // due to opaque pointers we need to specify at type
       (printf "p.x = %d\n" (prop p x))
       (printf "p.y = %d\n" (prop p y))
-
-      (var c (method p calc))
-      (printf "p.x + p.y = %d\n" c)
-
-      (method p constructor 30 40)
-      (printf "p.x + p.y = %d\n" (method p calc))
+      (printf "p.z = %d\n" (prop p z))
+      (printf "p.x + p.y + p.z = %d\n" (method p calc))
 
     )";
 
