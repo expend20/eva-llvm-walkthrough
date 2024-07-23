@@ -559,19 +559,33 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
 
             // ----------------------------------------------------
             // Method / super call
-            // (method|super p calc)
-            else if (tag.string == "method" || tag.string == "super") {
-                auto instName = exp.list[1].string;
+            // (method p calc)
+            // (method (self Point) calc)
+            else if (tag.string == "method") {
+                std::string instName;
+                std::string specifiedType;
+                if (exp.list[1].type == ExpType::SYMBOL)
+                {
+                    instName = exp.list[1].string;
+                }
+                else
+                {
+                    instName = exp.list[1].list[0].string;
+                    specifiedType = exp.list[1].list[1].string;
+                }
                 auto methodName = exp.list[2].string;
                 auto inst = gen(instName, env);
                 auto type = env->lookup(instName).type;
                 dprintf("Method call: %s.%s class %p\n", instName.c_str(),
                         methodName.c_str(), type);
+                // original class name
                 auto className = type->getStructName().str();
                 dprintf("Class name: %s\n", className.c_str());
-                if (tag.string == "super") {
-                    className = classMap_[className].parent;
+                if (!specifiedType.empty()) {
+                    className = specifiedType;
                 }
+                dprintf("Specified class name: %s\n", className.c_str());
+
                 auto funcName = className + "_" + methodName;
                 auto fn = module->getFunction(funcName);
                 if (fn == nullptr) {
@@ -586,57 +600,6 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                 dprintf("Calling method: %s\n", funcName.c_str());
                 return builder->CreateCall(fn, args);
             }
-
-            /*
-            // ----------------------------------------------------
-            // Method call
-            // (method p calc)
-            else if (tag.string == "method") {
-                // TODO: length check
-                auto instName = exp.list[1].string;
-                auto methodName = exp.list[2].string;
-                auto inst = gen(instName, env);
-                auto type = env->lookup(instName).type;
-                auto className = type->getStructName().str();
-                auto funcName = className + "_" + methodName;
-                auto fn = module->getFunction(funcName);
-                if (fn == nullptr) {
-                    auto e = "Method not found: " + funcName;
-                    throw std::runtime_error(e.c_str());
-                }
-                std::vector<llvm::Value*> args;
-                args.push_back(inst);
-                for (size_t i = 3; i < exp.list.size(); i++) {
-                    args.push_back(gen(exp.list[i], env));
-                }
-                dprintf("Calling method: %s\n", funcName.c_str());
-                return builder->CreateCall(fn, args);
-            }
-
-            // ----------------------------------------------------
-            // Super call
-            // (super self constructor x y)
-            else if (tag.string == "super") {
-                auto instName = exp.list[1].string;
-                auto methodName = exp.list[2].string;
-                auto inst = gen(instName, env);
-                auto currentClassName = classType->getName().str();
-                auto parentClassName = classMap_[currentClassName].parent;
-                auto funcName = parentClassName + "_" + methodName;
-                auto fn = module->getFunction(funcName);
-                if (fn == nullptr) {
-                    auto e = "Method not found: " + funcName;
-                    throw std::runtime_error(e.c_str());
-                }
-                std::vector<llvm::Value*> args;
-                args.push_back(inst);
-                for (size_t i = 3; i < exp.list.size(); i++) {
-                    args.push_back(gen(exp.list[i], env));
-                }
-                dprintf("Calling method: %s\n", funcName.c_str());
-                return builder->CreateCall(fn, args);
-            }
-            */
 
             // ----------------------------------------------------
             // Function call
@@ -661,7 +624,8 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
     } // case LIST
     } // switch
     printf("Not handled %s: %s\n", exp_type2str(exp.type).c_str(),
-           exp.string.c_str());
+           exp.type == ExpType::SYMBOL ? exp.string.c_str()
+                                       : exp_list2str(exp.list).c_str());
     assert(false && "Not implemented");
 }
 

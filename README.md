@@ -14,6 +14,11 @@ Environment variables to set-up:
 * `EVA_DEBUG` - enables debug output input processing.
 * `EVA_COUT` - prints output to the console in addition to .ll file.
 
+## TODO
+
+[ ] Class fields serialization error.
+[ ] Tests should be done through one executable which read from stdin.
+
 ## Environment setup
 
 This section is my environment setup for Windows.

@@ -38,7 +38,7 @@ int main() {
           (def constructor (self x y z)
             (begin
               (printf "Point3D.constructor\n")
-              (super self constructor x y)
+              (method (self Point) constructor x y)
               (set (prop self z) z)
             )
           )
@@ -46,7 +46,7 @@ int main() {
           (def calc (self)
             (begin
               (printf "Point3D.calc\n")
-              (+ (super self calc) (prop self z))
+              (+ (method (self Point) calc) (prop self z))
             )
           )
         )
