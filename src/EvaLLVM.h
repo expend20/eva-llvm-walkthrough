@@ -24,8 +24,11 @@ using Env = std::shared_ptr<Environment>;
 struct ClassInfo {
     llvm::StructType* classType;
     std::string parent;
-    std::map<std::string, llvm::Type*> fields;
-    std::map<std::string, llvm::Function*> methods;
+    // for serialization purposes we need to keep the order of fields
+    std::vector<std::string> fieldNames;
+    std::map<std::string, llvm::Type*> fieldTypes;
+    std::vector<std::string> methodNames;
+    std::map<std::string, llvm::Function*> methodTypes;
 };
 
 std::string exp_type2str(ExpType type);
@@ -37,7 +40,6 @@ template <typename T> std::string dumpValueToString(const T* V);
 class EvaLLVM {
 
   public:
-
     EvaLLVM();
     ~EvaLLVM();
 
@@ -118,7 +120,7 @@ class EvaLLVM {
     llvm::Value* accessProperty(const Exp& exp, Env env,
                                 llvm::Value* newValue = nullptr);
 
-    size_t getStructIndex(llvm::Type* type, const std::string& field);
+    size_t getFieldIndex(llvm::Type* type, const std::string& field);
 
     llvm::Value* createClassInstance(const Exp& exp, Env env,
                                      std::string& varName);
@@ -155,6 +157,18 @@ class EvaLLVM {
     void setupExternalFunctions();
 
     void saveModuleToFile(const std::string& fileName);
+
+    void addFieldToClass(const std::string& className,
+                         const std::string& fieldName, llvm::Type* fieldType);
+
+    void addMethodToClass(const std::string& className,
+                          const std::string& funcName,
+                          llvm::Function* funcType);
+
+    std::vector<llvm::Type*>
+    serializeFieldTypes(const llvm::StructType* vtable,
+                        const std::string& className);
+    std::vector<llvm::Type*> serializeMethodTypes(const std::string& className);
 };
 
 #endif // EvaLLVM_h

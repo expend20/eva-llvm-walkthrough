@@ -564,12 +564,9 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
             else if (tag.string == "method") {
                 std::string instName;
                 std::string specifiedType;
-                if (exp.list[1].type == ExpType::SYMBOL)
-                {
+                if (exp.list[1].type == ExpType::SYMBOL) {
                     instName = exp.list[1].string;
-                }
-                else
-                {
+                } else {
                     instName = exp.list[1].list[0].string;
                     specifiedType = exp.list[1].list[1].string;
                 }
@@ -650,7 +647,7 @@ llvm::Value* EvaLLVM::accessProperty(const Exp& exp, Env env,
         auto e = "Class not found: " + varName;
         throw std::runtime_error(e.c_str());
     }
-    const auto structIdx = getStructIndex(type, varName);
+    const auto structIdx = getFieldIndex(type, varName);
     if (newValue != nullptr) {
         auto propPtr =
             builder->CreateStructGEP(type, inst, structIdx, "propPtr");
@@ -659,26 +656,26 @@ llvm::Value* EvaLLVM::accessProperty(const Exp& exp, Env env,
     } else {
         auto propPtr =
             builder->CreateStructGEP(type, inst, structIdx, "propPtr");
-        return builder->CreateLoad(classInfo.fields[varName], propPtr, "prop");
+        return builder->CreateLoad(classInfo.fieldTypes[varName], propPtr,
+                                   "prop");
     }
 }
 
 /**
  * Get the struct index
  */
-size_t EvaLLVM::getStructIndex(llvm::Type* type, const std::string& field) {
+size_t EvaLLVM::getFieldIndex(llvm::Type* type, const std::string& field) {
     auto structName = type->getStructName().str();
     dprintf("Getting index for %s.%s\n", structName.c_str(), field.c_str());
     auto classInfo = classMap_[structName];
-    auto fields = classInfo.fields;
-    auto prop = classInfo.fields.begin();
-    for (size_t i = 0; i < fields.size(); i++) {
-        if (prop->first == field) {
+    size_t idx = 1; // first element is the vtable
+    for (const auto& f : classInfo.fieldNames) {
+        if (f == field) {
             dprintf("Field found: %s.%s at index %lu\n", structName.c_str(),
-                    field.c_str(), i);
-            return i;
+                    field.c_str(), idx);
+            return idx;
         }
-        prop++;
+        idx++;
     }
     auto s = "Field not found: " + structName + "." + field;
     throw std::runtime_error(s.c_str());
@@ -760,8 +757,6 @@ void EvaLLVM::createClass(const Exp& exp, Env env) {
     inheritClass(classType, classParent);
     classMap_[className].classType = classType;
     classMap_[className].parent = classParent;
-    // fields are already set in inheritClass if any
-    classMap_[className].methods = {};
 
     // Scan the class body, since the constructor can call methods
     buildClassInfo(classType, exp, env);
@@ -813,7 +808,7 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
 
             auto varNameDecl = extractVarName(expName);
             auto varType = extractVarType(expName, expInit);
-            classMap_[className].fields[varNameDecl] = varType;
+            addFieldToClass(className, varNameDecl, varType);
             dprintf("Building class info, var: %s.%s, init...\n",
                     className.c_str(), varNameDecl.c_str());
         }
@@ -828,11 +823,12 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
             if (argNames[0] != "self") {
                 throw std::runtime_error("First argument must be 'self'");
             }
-            classMap_[className].methods[exp.string] = llvm::Function::Create(
-                llvm::FunctionType::get(
-                    /* result */ retType,
-                    /* args */ argTypes, false),
-                llvm::Function::ExternalLinkage, exp.string, *module);
+            auto fn = llvm::Function::Create(llvm::FunctionType::get(
+                                                 /* result */ retType,
+                                                 /* args */ argTypes, false),
+                                             llvm::Function::ExternalLinkage,
+                                             exp.string, *module);
+            addMethodToClass(className, fnName.string, fn);
             // printf("Building class info, method: %s\n",
             //        fnName.string.c_str());
 
@@ -841,13 +837,16 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
             throw std::runtime_error("Invalid class body element");
         }
     }
+    // create vtable, it's just a pointers
+    auto vtable = llvm::StructType::create(*context, className + "_vtable");
+    const auto vtableFields = serializeMethodTypes(className);
+    vtable->setBody(vtableFields);
+
     // init struct fields
-    std::vector<llvm::Type*> fields;
-    for (const auto& [name, type] : classMap_[className].fields) {
-        dprintf("Adding field final: %s.%s\n", className.c_str(), name.c_str());
-        fields.push_back(type);
-    }
+    const auto fields = serializeFieldTypes(vtable, className);
+
     classType->setBody(fields);
+
     dprintf("Class info built: %s\n", dumpValueToString(classType).c_str());
 }
 
@@ -856,33 +855,13 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
  */
 void EvaLLVM::inheritClass(llvm::StructType* classType,
                            const std::string& name) {
-    // get existing class info
-    std::string varName = name;
-    // collect all parent classes
-    std::vector<std::string> parents;
-    while (!varName.empty() && varName != "null") {
-        parents.push_back(varName);
-        varName = classMap_[varName].parent;
-        dprintf("Parent class: %s\n", varName.c_str());
-    }
-
-    // collect all the fields and methods, starting from the last parent
-    std::vector<std::pair<std::string, llvm::Type*>> fields;
-    for (auto it = parents.rbegin(); it != parents.rend(); ++it) {
-        auto parentName = *it;
-        auto parentInfo = classMap_[parentName];
-        for (const auto& [name, type] : parentInfo.fields) {
-            dprintf("Inheriting field: %s\n", name.c_str());
-            fields.push_back({name, type});
-        }
-    }
-
-    // add the fields to the class
     const auto currentClassName = classType->getName().str();
-    for (const auto& [name, type] : fields) {
-        dprintf("Adding field: %s.%s\n", currentClassName.c_str(),
-                name.c_str());
-        classMap_[currentClassName].fields[name] = type;
+    if (name != "null") {
+        const auto varName = classMap_[name].parent;
+        classMap_[currentClassName].fieldNames = classMap_[name].fieldNames;
+        classMap_[currentClassName].fieldTypes = classMap_[name].fieldTypes;
+        classMap_[currentClassName].methodNames = classMap_[name].methodNames;
+        classMap_[currentClassName].methodTypes = classMap_[name].methodTypes;
     }
 }
 
@@ -1087,6 +1066,54 @@ EvaLLVM::EvaLLVM() {
 
 EvaLLVM::~EvaLLVM() {
     // cleanup
+}
+
+/**
+ * Add field to a class
+ */
+void EvaLLVM::addFieldToClass(const std::string& className,
+                              const std::string& fieldName,
+                              llvm::Type* fieldType) {
+    classMap_[className].fieldNames.push_back(fieldName);
+    classMap_[className].fieldTypes[fieldName] = fieldType;
+}
+
+/**
+ * Add method to a class
+ */
+void EvaLLVM::addMethodToClass(const std::string& className,
+                               const std::string& methodName,
+                               llvm::Function* method) {
+    classMap_[className].methodNames.push_back(methodName);
+    classMap_[className].methodTypes[methodName] = method;
+}
+
+/**
+ * Serialize field types
+ */
+std::vector<llvm::Type*>
+EvaLLVM::serializeFieldTypes(const llvm::StructType* vtable,
+                             const std::string& className) {
+    std::vector<llvm::Type*> result;
+    // first field is always a pointer to the vtable
+    result.push_back(vtable->getPointerTo());
+    for (const auto& fnName : classMap_[className].fieldNames) {
+        result.push_back(classMap_[className].fieldTypes[fnName]);
+    }
+    return result;
+}
+
+/**
+ * Serialize method types
+ */
+std::vector<llvm::Type*>
+EvaLLVM::serializeMethodTypes(const std::string& className) {
+    std::vector<llvm::Type*> result;
+    for (const auto& fnName : classMap_[className].methodNames) {
+        result.push_back(
+            classMap_[className].methodTypes[fnName]->getFunctionType());
+    }
+    return result;
 }
 
 void EvaLLVM::moduleInit() {
