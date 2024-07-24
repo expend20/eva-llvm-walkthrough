@@ -58,7 +58,9 @@ int main() {
       (printf "p.x = %d\n" (prop p x))
       (printf "p.y = %d\n" (prop p y))
       (printf "p.z = %d\n" (prop p z))
-      (printf "p.x + p.y + p.z = %d\n" (method p calc))
+
+      // still prints 60 because of vtable use
+      (printf "p.x + p.y + p.z = %d\n" (method (p Point) calc))
 
     )";
 

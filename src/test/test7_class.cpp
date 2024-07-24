@@ -68,7 +68,9 @@ int main(int argc, char *argv[]) {
       (printf "p.x = %d\n" (prop p x))
       (printf "p.y = %d\n" (prop p y))
       (printf "p.z = %d\n" (prop p z))
-      (printf "p.x + p.y + p.z = %d\n" (method p calc))
+
+      // still prints 60 (despite cast to Point) because of vtable
+      (printf "p.x + p.y + p.z = %d\n" (method (p Point) calc))
 
     )";
 

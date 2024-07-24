@@ -122,6 +122,8 @@ class EvaLLVM {
 
     size_t getFieldIndex(llvm::Type* type, const std::string& field);
 
+    size_t getMethodIndex(llvm::Type* type, const std::string& method);
+
     llvm::Value* createClassInstance(const Exp& exp, Env env,
                                      std::string& varName);
 

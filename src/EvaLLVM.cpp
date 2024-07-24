@@ -584,8 +584,36 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                 dprintf("Specified class name: %s\n", className.c_str());
 
                 auto funcName = className + "_" + methodName;
-                auto fn = module->getFunction(funcName);
-                if (fn == nullptr) {
+                auto classInfo = classMap_[className];
+                llvm::Value* fnDest = nullptr;
+                // we're only using vtable if outside of a class, we must use
+                // direct function call inside of a class
+                if (classType == nullptr) {
+                    dprintf("Method call outside of class: %s.%s\n",
+                            className.c_str(), methodName.c_str());
+                    // get fn from vtable
+                    auto idx = getMethodIndex(type, methodName);
+                    auto vtableGlobalVar =
+                        module->getGlobalVariable(className + "_vtable_var");
+                    auto vtableType = vtableGlobalVar->getValueType();
+                    // fetch vtable pointer from the instance
+                    auto vtablePtr =
+                        builder->CreateStructGEP(type, inst, 0, "vtable_gep");
+                    auto vtable = builder->CreateLoad(
+                        vtableType->getPointerTo(), vtablePtr, "vtable");
+                    // fetch the method pointer from the vtable
+                    auto fnPtr = builder->CreateStructGEP(vtableType, vtable,
+                                                          idx, "method");
+                    fnDest =
+                        builder->CreateLoad(classInfo.methodTypes[methodName]
+                                                ->getType()
+                                                ->getPointerTo(),
+                                            fnPtr, "method");
+                } else {
+                    fnDest = module->getFunction(funcName);
+                }
+
+                if (fnDest == nullptr) {
                     auto e = "Method not found: " + funcName;
                     throw std::runtime_error(e.c_str());
                 }
@@ -595,7 +623,10 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                     args.push_back(gen(exp.list[i], env));
                 }
                 dprintf("Calling method: %s\n", funcName.c_str());
-                return builder->CreateCall(fn, args);
+
+                return builder->CreateCall(
+                    classInfo.methodTypes[methodName]->getFunctionType(),
+                    fnDest, args);
             }
 
             // ----------------------------------------------------
@@ -681,6 +712,23 @@ size_t EvaLLVM::getFieldIndex(llvm::Type* type, const std::string& field) {
     throw std::runtime_error(s.c_str());
 }
 
+size_t EvaLLVM::getMethodIndex(llvm::Type* type, const std::string& field) {
+    auto structName = type->getStructName().str();
+    dprintf("Getting index for %s.%s\n", structName.c_str(), field.c_str());
+    auto classInfo = classMap_[structName];
+    size_t idx = 0;
+    for (const auto& f : classInfo.methodNames) {
+        if (f == field) {
+            dprintf("Method found: %s.%s at index %lu\n", structName.c_str(),
+                    field.c_str(), idx);
+            return idx;
+        }
+        idx++;
+    }
+    auto s = "Method not found: " + structName + "." + field;
+    throw std::runtime_error(s.c_str());
+}
+
 /**
  * Create a class instance
  */
@@ -700,6 +748,14 @@ llvm::Value* EvaLLVM::createClassInstance(const Exp& exp, Env env,
 
     // malloc example:
     auto instance = mallocInsance(classType, "GC_malloc");
+    // initialize the vtable
+    auto vtablePtr = builder->CreateStructGEP(classType, instance, 0, "vtable");
+    auto vtableGlobal = module->getGlobalVariable(className + "_vtable_var");
+    if (vtableGlobal == nullptr) {
+        auto e = "Vtable not found for class: " + className;
+        throw std::runtime_error(e.c_str());
+    }
+    builder->CreateStore(vtableGlobal, vtablePtr);
 
     // call the constructor
     auto constructor = module->getFunction(className + "_constructor");
@@ -823,28 +879,42 @@ void EvaLLVM::buildClassInfo(llvm::StructType* classType, const Exp& exp,
             if (argNames[0] != "self") {
                 throw std::runtime_error("First argument must be 'self'");
             }
-            auto fn = llvm::Function::Create(llvm::FunctionType::get(
-                                                 /* result */ retType,
-                                                 /* args */ argTypes, false),
-                                             llvm::Function::ExternalLinkage,
-                                             exp.string, *module);
+            auto fn = createFunctionProto(
+                className + "_" + fnName.string,
+                llvm::FunctionType::get(retType, argTypes, false), env);
             addMethodToClass(className, fnName.string, fn);
-            // printf("Building class info, method: %s\n",
-            //        fnName.string.c_str());
+            dprintf("Building class info, method: %s\n", fnName.string.c_str());
 
         } else {
             // printf("Unknown class body element: %s\n", firstLE.c_str());
             throw std::runtime_error("Invalid class body element");
         }
     }
-    // create vtable, it's just a pointers
-    auto vtable = llvm::StructType::create(*context, className + "_vtable");
+    // create vtable, it's just a pointer array
+    auto vtableType =
+        llvm::StructType::create(*context, className + "_vtable_type");
     const auto vtableFields = serializeMethodTypes(className);
-    vtable->setBody(vtableFields);
+    vtableType->setBody(vtableFields);
+    // create global variable for the vtable
+    auto vtableGlobal = new llvm::GlobalVariable(
+        *module, vtableType, true, llvm::GlobalValue::ExternalLinkage, nullptr,
+        className + "_vtable_var");
+    std::vector<llvm::Constant*> vtableInit;
+    for (const auto& methodName : classMap_[className].methodNames) {
+        const auto fn = classMap_[className].methodTypes[methodName];
+        if (fn == nullptr) {
+            auto e = "Method not found: " + className + "_" + methodName;
+            throw std::runtime_error(e.c_str());
+        }
+        vtableInit.push_back(fn);
+    }
+
+    vtableGlobal->setInitializer(
+        llvm::ConstantStruct::get(vtableType, vtableInit));
+    vtableGlobal->setAlignment(llvm::MaybeAlign(8));
 
     // init struct fields
-    const auto fields = serializeFieldTypes(vtable, className);
-
+    const auto fields = serializeFieldTypes(vtableType, className);
     classType->setBody(fields);
 
     dprintf("Class info built: %s\n", dumpValueToString(classType).c_str());
@@ -1074,6 +1144,14 @@ EvaLLVM::~EvaLLVM() {
 void EvaLLVM::addFieldToClass(const std::string& className,
                               const std::string& fieldName,
                               llvm::Type* fieldType) {
+    if (classMap_[className].fieldTypes.find(fieldName) !=
+        classMap_[className].fieldTypes.end()) {
+        auto e = "Field already exists: " + className + "." + fieldName;
+        throw std::runtime_error(e.c_str());
+    }
+
+    dprintf("Adding field to class: %s.%s\n", className.c_str(),
+            fieldName.c_str());
     classMap_[className].fieldNames.push_back(fieldName);
     classMap_[className].fieldTypes[fieldName] = fieldType;
 }
@@ -1084,7 +1162,14 @@ void EvaLLVM::addFieldToClass(const std::string& className,
 void EvaLLVM::addMethodToClass(const std::string& className,
                                const std::string& methodName,
                                llvm::Function* method) {
-    classMap_[className].methodNames.push_back(methodName);
+    dprintf("Adding method to class: %s.%s\n", className.c_str(),
+            methodName.c_str());
+    // during overloading we might have the same method name, in which case
+    // we don't update methodNames but only the methodTypes
+    if (classMap_[className].methodTypes.find(methodName) ==
+        classMap_[className].methodTypes.end()) {
+        classMap_[className].methodNames.push_back(methodName);
+    }
     classMap_[className].methodTypes[methodName] = method;
 }
 
@@ -1110,8 +1195,10 @@ std::vector<llvm::Type*>
 EvaLLVM::serializeMethodTypes(const std::string& className) {
     std::vector<llvm::Type*> result;
     for (const auto& fnName : classMap_[className].methodNames) {
-        result.push_back(
-            classMap_[className].methodTypes[fnName]->getFunctionType());
+        result.push_back(classMap_[className]
+                             .methodTypes[fnName]
+                             ->getType()
+                             ->getPointerTo());
     }
     return result;
 }
