@@ -122,7 +122,8 @@ class EvaLLVM {
 
     size_t getFieldIndex(llvm::Type* type, const std::string& field);
 
-    size_t getMethodIndex(llvm::Type* type, const std::string& method);
+    size_t getMethodIndex(const std::string& className,
+                          const std::string& method);
 
     llvm::Value* createClassInstance(const Exp& exp, Env env,
                                      std::string& varName);
@@ -167,10 +168,22 @@ class EvaLLVM {
                           const std::string& funcName,
                           llvm::Function* funcType);
 
-    std::vector<llvm::Type*>
-    serializeFieldTypes(const llvm::StructType* vtable,
-                        const std::string& className);
+    std::vector<llvm::Type*> serializeFieldTypes(const llvm::StructType* vtable,
+                                                 const std::string& className);
     std::vector<llvm::Type*> serializeMethodTypes(const std::string& className);
+
+    llvm::Value* loadVtablePtr(llvm::Value* inst, const std::string& methodName,
+                               const std::string& className);
+
+    llvm::Value* getCallable(const Exp& exp, Env env);
+
+    std::vector<llvm::Value*> genFunctionArgs(const Exp& exp, size_t start,
+                                              Env env);
+
+    std::vector<llvm::Value*> genMethodArgs(llvm::Value* inst, const Exp& exp,
+                                            size_t start, Env env);
+
+    ClassInfo* getClassInfoByVarName(const std::string& varName, Env env);
 };
 
 #endif // EvaLLVM_h

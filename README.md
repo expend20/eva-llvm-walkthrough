@@ -480,8 +480,28 @@ dpkg -L libgc-dev
 * Load-Store architecture
 
 # Lecture 16: Class Inheritance | vTable
+
 * Class inheritance
 * Virtual Table (vTable)
 * Methods storage
 * Dynamic dispatch
 * Generic methods
+
+# Lecture 17: Methods application
+
+* Method load
+* Method call
+* Arguments casting
+* vTable storage
+
+# Lecture 18: Functors – callable objects
+
+* Callable objects
+* Functors
+* First class functions
+* __call__ method
+* Callback functions
+* Syntactic sugar
+
+
+

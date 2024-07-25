@@ -32,5 +32,6 @@ if (DEFINED ENV{EVA_TESTS})
   add_test_executable(test5_func src/test/test5_func.cpp)
   add_test_executable_gc(test6_class src/test/test6_class.cpp)
   add_test_executable_gc(test7_class src/test/test7_class.cpp)
+  add_test_executable_gc(test8_callable src/test/test8_callable.cpp)
 endif()
 

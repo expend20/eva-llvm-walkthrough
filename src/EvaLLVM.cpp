@@ -591,24 +591,7 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                 if (classType == nullptr) {
                     dprintf("Method call outside of class: %s.%s\n",
                             className.c_str(), methodName.c_str());
-                    // get fn from vtable
-                    auto idx = getMethodIndex(type, methodName);
-                    auto vtableGlobalVar =
-                        module->getGlobalVariable(className + "_vtable_var");
-                    auto vtableType = vtableGlobalVar->getValueType();
-                    // fetch vtable pointer from the instance
-                    auto vtablePtr =
-                        builder->CreateStructGEP(type, inst, 0, "vtable_gep");
-                    auto vtable = builder->CreateLoad(
-                        vtableType->getPointerTo(), vtablePtr, "vtable");
-                    // fetch the method pointer from the vtable
-                    auto fnPtr = builder->CreateStructGEP(vtableType, vtable,
-                                                          idx, "method");
-                    fnDest =
-                        builder->CreateLoad(classInfo.methodTypes[methodName]
-                                                ->getType()
-                                                ->getPointerTo(),
-                                            fnPtr, "method");
+                    fnDest = loadVtablePtr(inst, methodName, className);
                 } else {
                     fnDest = module->getFunction(funcName);
                 }
@@ -617,16 +600,11 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
                     auto e = "Method not found: " + funcName;
                     throw std::runtime_error(e.c_str());
                 }
-                std::vector<llvm::Value*> args;
-                args.push_back(inst);
-                for (size_t i = 3; i < exp.list.size(); i++) {
-                    args.push_back(gen(exp.list[i], env));
-                }
                 dprintf("Calling method: %s\n", funcName.c_str());
 
                 return builder->CreateCall(
                     classInfo.methodTypes[methodName]->getFunctionType(),
-                    fnDest, args);
+                    fnDest, genMethodArgs(inst, exp, 3, env));
             }
 
             // ----------------------------------------------------
@@ -637,16 +615,27 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
             // auto fn =
             //     llvm::dyn_cast<llvm::Function>(env->lookup(tag.string));
             auto fn = module->getFunction(tag.string);
-            dprintf("Lookup result: %s\n",
-                    fn ? "Function found" : "Function not found");
-            // auto anyFn = module->getFunction(tag.string);
             if (fn) {
-                std::vector<llvm::Value*> args;
-                for (size_t i = 1; i < exp.list.size(); i++) {
-                    args.push_back(gen(exp.list[i], env));
-                }
-                return builder->CreateCall(fn, args);
+                dprintf("Function found: %s\n", tag.string.c_str());
+                return builder->CreateCall(fn, genFunctionArgs(exp, 1, env));
             }
+            dprintf("Function not found: %s\n", tag.string.c_str());
+
+            // ----------------------------------------------------
+            // Functor call
+            // (transform 10) // where transform is a class with __call__ method
+            dprintf("Calling a functor/callable: %s\n", tag.string.c_str());
+            auto callable = getCallable(exp, env);
+            if (callable != nullptr) {
+                const auto classInfo = getClassInfoByVarName(tag.string, env);
+                const auto fnDest =
+                    loadVtablePtr(callable, "__call__",
+                                  classInfo->classType->getStructName().str());
+                return builder->CreateCall(
+                    classInfo->methodTypes["__call__"]->getFunctionType(),
+                    fnDest, genMethodArgs(callable, exp, 1, env));
+            }
+            dprintf("Callable not found: %s\n", tag.string.c_str());
         }
         break;
     } // case LIST
@@ -655,6 +644,84 @@ llvm::Value* EvaLLVM::gen(const Exp& exp, Env env) {
            exp.type == ExpType::SYMBOL ? exp.string.c_str()
                                        : exp_list2str(exp.list).c_str());
     assert(false && "Not implemented");
+}
+
+/**
+ * Gen arguments
+ */
+std::vector<llvm::Value*> EvaLLVM::genFunctionArgs(const Exp& exp, size_t start,
+                                                   Env env) {
+    std::vector<llvm::Value*> args;
+    for (size_t i = start; i < exp.list.size(); i++) {
+        args.push_back(gen(exp.list[i], env));
+    }
+    return args;
+}
+
+/**
+ * Get method arguments
+ */
+std::vector<llvm::Value*> EvaLLVM::genMethodArgs(llvm::Value* inst,
+                                                 const Exp& exp, size_t start,
+                                                 Env env) {
+    std::vector<llvm::Value*> args;
+    args.push_back(inst);
+    for (size_t i = start; i < exp.list.size(); i++) {
+        args.push_back(gen(exp.list[i], env));
+    }
+    return args;
+}
+
+/**
+ * Get callable
+ */
+llvm::Value* EvaLLVM::getCallable(const Exp& exp, Env env) {
+    const auto tag = exp.list[0];
+    const auto classInfo = getClassInfoByVarName(tag.string, env);
+    if (classInfo == nullptr) {
+        return nullptr;
+    }
+    const auto className = classInfo->classType->getStructName().str();
+
+    return gen(tag, env);
+}
+
+/**
+ * Get ClassInfo* by variable name
+ */
+ClassInfo* EvaLLVM::getClassInfoByVarName(const std::string& varName, Env env) {
+    auto type = env->lookup(varName).type;
+    if (type == nullptr) {
+        return nullptr;
+    }
+    auto className = type->getStructName().str();
+    if (classMap_.find(className) == classMap_.end()) {
+        return nullptr;
+    }
+    return &classMap_[className];
+}
+
+/**
+ * Build vtable call
+ */
+llvm::Value* EvaLLVM::loadVtablePtr(llvm::Value* inst,
+                                    const std::string& methodName,
+                                    const std::string& className) {
+    // get fn from vtable
+    auto idx = getMethodIndex(className, methodName);
+    auto vtableGlobalVar = module->getGlobalVariable(className + "_vtable_var");
+    auto vtableType = vtableGlobalVar->getValueType();
+    // fetch vtable pointer from the instance
+    auto classInfo = classMap_[className];
+    auto vtablePtr =
+        builder->CreateStructGEP(classInfo.classType, inst, 0, "vtable_gep");
+    auto vtable =
+        builder->CreateLoad(vtableType->getPointerTo(), vtablePtr, "vtable");
+    // fetch the method pointer from the vtable
+    auto fnPtr = builder->CreateStructGEP(vtableType, vtable, idx, "method");
+    return builder->CreateLoad(
+        classInfo.methodTypes[methodName]->getType()->getPointerTo(), fnPtr,
+        "method");
 }
 
 /**
@@ -712,8 +779,9 @@ size_t EvaLLVM::getFieldIndex(llvm::Type* type, const std::string& field) {
     throw std::runtime_error(s.c_str());
 }
 
-size_t EvaLLVM::getMethodIndex(llvm::Type* type, const std::string& field) {
-    auto structName = type->getStructName().str();
+size_t EvaLLVM::getMethodIndex(const std::string& structName,
+                               const std::string& field) {
+    // auto structName = type->getStructName().str();
     dprintf("Getting index for %s.%s\n", structName.c_str(), field.c_str());
     auto classInfo = classMap_[structName];
     size_t idx = 0;
@@ -763,11 +831,7 @@ llvm::Value* EvaLLVM::createClassInstance(const Exp& exp, Env env,
         auto e = "Constructor not found for class: " + className;
         throw std::runtime_error(e.c_str());
     }
-    std::vector<llvm::Value*> args;
-    args.push_back(instance);
-    for (size_t i = 2; i < exp.list.size(); i++) {
-        args.push_back(gen(exp.list[i], env));
-    }
+    auto args = genMethodArgs(instance, exp, 2, env);
     dprintf("Creating class instance: %s...\n", instName.c_str());
     env->define(instName, instance, classType);
     dprintf("Creating class instance: %s\n", instName.c_str());
