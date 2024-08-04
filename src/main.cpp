@@ -8,31 +8,62 @@ int main() {
      */
     std::string program = R"(
 
-      // Functors - callable objects
-      //
-      (class Transformer null
+      // Functors - callable objects (aka Closure)
+
+      // Closures (aba Boxes) are syntactic sugar for functors
+      (class Cell null
         (begin
-
-          (var factor 0)
-
-          (def constructor (self factor)
+          (var value 0)
+          (def constructor (self value) -> Cell
             (begin
-              (set (prop self factor) factor)
-            )
-          )
-
-          (def __call__ (self v)
-            (begin
-              (printf "Transformed.__call__\n")
-              (* v (prop self factor))
+              (set (prop self value) value)
+              self
             )
           )
         )
       )
 
-      (var transform (new Transformer 2))
-      (var x (transform 10)) // call __call__ just by using the object
-      (printf "x = %d\n" x)
+      (class SetFunctor null
+        (begin
+          (var (cell Cell) 0)
+          (def constructor (self (cell Cell)) -> SetFunctor
+            (begin
+              (set (prop self cell) cell)
+              self
+            )
+          )
+          (def __call__ (self value)
+            (begin
+              (var x (prop self cell))
+              (set (prop x value) value)
+              value
+            )
+          )
+        )
+      )
+
+      (class GetFunctor null
+        (begin
+          (var (cell Cell) 0)
+          (def constructor (self (cell Cell)) -> GetFunctor
+            (begin
+              (set (prop self cell) cell)
+              self
+            )
+          )
+          (def __call__ (self)
+            (prop (prop self cell) value)
+          )
+        )
+      )
+
+      (var n (new Cell 10))
+      (var setN (new SetFunctor n))
+      (var getN (new GetFunctor n))
+
+      (printf "n = %d\n" (getN)) // n = 10
+      (printf "setN(20) = %d\n" (setN 20)) // setN(20) = 20
+      (printf "n = %d\n" (getN)) // n = 20
 
     )";
 

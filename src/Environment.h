@@ -1,7 +1,8 @@
 #ifndef Envinroment_h
 #define Envinroment_h
 
-#include "llvm/IR/DerivedTypes.h"
+#include "EvaLLVM.h" // for dumpValueToString, dprintf
+#include "TypesMisc.h"
 #include <map>
 #include <string>
 
@@ -11,22 +12,18 @@
  * Environment: name storage
  */
 
-struct EnvValueType {
-    llvm::Value* value;
-    llvm::Type* type;
-};
-
 class Environment : public std::enable_shared_from_this<Environment> {
   public:
     /**
      * Creates an environment with a parent link
      */
     Environment(
-        std::map<std::string, EnvValueType> record,
-        std::shared_ptr<Environment> parent)
+        std::map<std::string, ValueType> record,
+        std::shared_ptr<Environment>     parent)
         : record_(record), parent_(parent) {}
 
-    static EnvValueType make_value(llvm::Value* value, llvm::Type* type = nullptr) {
+    static ValueType
+    make_value(llvm::Value* value, llvm::Type* type = nullptr) {
         return {value, type};
     }
 
@@ -35,8 +32,8 @@ class Environment : public std::enable_shared_from_this<Environment> {
      * Note: for the pointers we need to specify the original type (because of
      * opaque pointers)
      */
-    llvm::Value* define(const std::string& name, llvm::Value* value,
-                        llvm::Type* typeForPtr) {
+    llvm::Value* define(
+        const std::string& name, llvm::Value* value, llvm::Type* typeForPtr) {
         // check if value is a pointer
         if (value->getType()->isPointerTy()) {
             if (typeForPtr == nullptr) {
@@ -45,6 +42,12 @@ class Environment : public std::enable_shared_from_this<Environment> {
             }
         }
         record_[name] = {value, typeForPtr};
+        dprintf(
+            "Env var defined: name %s, value %s, type %s\n",
+            name.c_str(),
+            dumpValueToString(value).c_str(),
+            dumpValueToString(typeForPtr).c_str());
+
         return value;
     }
 
@@ -55,7 +58,7 @@ class Environment : public std::enable_shared_from_this<Environment> {
         return resolve(name)->record_[name].value;
     }
 
-    EnvValueType lookup(const std::string& name) {
+    ValueType lookup(const std::string& name) {
         return resolve(name)->record_[name];
     }
 
@@ -79,14 +82,14 @@ class Environment : public std::enable_shared_from_this<Environment> {
         } else if (parent_ != nullptr) {
             return parent_->resolve(name);
         } else {
-            throw std::runtime_error("Undefined variable: " + name);
+            throw std::runtime_error("Undefined variable: '" + name + "'");
         }
     }
 
     /**
      * Binding storage
      */
-    std::map<std::string, EnvValueType> record_;
+    std::map<std::string, ValueType> record_;
 
     /**
      * Parent link

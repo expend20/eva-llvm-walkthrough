@@ -1,6 +1,7 @@
 #ifndef EvaLLVM_h
 #define EvaLLVM_h
 
+#include "TypesMisc.h"
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -23,17 +24,18 @@ using Env = std::shared_ptr<Environment>;
  */
 struct ClassInfo {
     llvm::StructType* classType;
-    std::string parent;
+    std::string       parent;
     // for serialization purposes we need to keep the order of fields
-    std::vector<std::string> fieldNames;
-    std::map<std::string, llvm::Type*> fieldTypes;
-    std::vector<std::string> methodNames;
+    std::vector<std::string>               fieldNames;
+    std::map<std::string, TypeType>        fieldTypes;
+    std::vector<std::string>               methodNames;
     std::map<std::string, llvm::Function*> methodTypes;
 };
 
 std::string exp_type2str(ExpType type);
+std::string exp2str(const Exp& exp);
 
-std::string exp_list2str(const std::vector<Exp>& list);
+void dprintf(const char* fmt, ...);
 
 template <typename T> std::string dumpValueToString(const T* V);
 
@@ -45,8 +47,9 @@ class EvaLLVM {
 
     void setupTargetTriple();
 
-    void eval(const std::string& program,
-              const std::string& fileName = "./output.ll");
+    void eval(
+        const std::string& program,
+        const std::string& fileName = "./output.ll");
 
   private:
     /**
@@ -104,32 +107,32 @@ class EvaLLVM {
 
     void compile(const Exp& ast);
 
-    llvm::Function* createFunction(const std::string& fnName,
-                                   llvm::FunctionType* fnType, Env env);
+    llvm::Function* createFunction(
+        const std::string& fnName, llvm::FunctionType* fnType, Env env);
 
-    llvm::Function* createFunctionProto(const std::string& fnName,
-                                        llvm::FunctionType* fnType, Env env);
+    llvm::Function* createFunctionProto(
+        const std::string& fnName, llvm::FunctionType* fnType, Env env);
 
     void createFunctionBlock(llvm::Function* fn);
 
-    llvm::BasicBlock* createBB(const std::string& name,
-                               llvm::Function* fn = nullptr);
+    llvm::BasicBlock*
+    createBB(const std::string& name, llvm::Function* fn = nullptr);
 
-    llvm::Value* gen(const Exp& exp, Env env);
+    ValueType gen(const Exp& exp, Env env);
 
-    llvm::Value* accessProperty(const Exp& exp, Env env,
-                                llvm::Value* newValue = nullptr);
+    ValueType
+    accessProperty(const Exp& exp, Env env, llvm::Value* newValue = nullptr);
 
     size_t getFieldIndex(llvm::Type* type, const std::string& field);
 
-    size_t getMethodIndex(const std::string& className,
-                          const std::string& method);
+    size_t
+    getMethodIndex(const std::string& className, const std::string& method);
 
-    llvm::Value* createClassInstance(const Exp& exp, Env env,
-                                     std::string& varName);
+    llvm::Value*
+    createClassInstance(const Exp& exp, Env env, std::string& varName);
 
-    llvm::Value* mallocInsance(llvm::StructType* classType,
-                               const std::string& name);
+    llvm::Value*
+    mallocInsance(llvm::StructType* classType, const std::string& name);
 
     size_t getTypeSize(llvm::Type* type);
 
@@ -149,39 +152,45 @@ class EvaLLVM {
 
     std::string extractVarName(const Exp& varDecl);
 
-    llvm::Type* extractVarType(const Exp& varDecl, const Exp& varInit);
+    TypeType extractVarType(const Exp& varDecl);
 
-    llvm::AllocaInst* allocVar(const std::string& varName, llvm::Type* varTy,
-                               Env env);
+    llvm::AllocaInst*
+    allocVar(const std::string& varName, llvm::Type* varTy, Env env);
 
-    llvm::GlobalVariable* createGlobalVar(const std::string& name,
-                                          llvm::Constant* init);
+    llvm::GlobalVariable*
+    createGlobalVar(const std::string& name, llvm::Constant* init);
 
     void setupExternalFunctions();
 
     void saveModuleToFile(const std::string& fileName);
 
-    void addFieldToClass(const std::string& className,
-                         const std::string& fieldName, llvm::Type* fieldType);
+    void addFieldToClass(
+        const std::string& className,
+        const std::string& fieldName,
+        llvm::Type*        fieldType,
+        llvm::Type*        ptrType = nullptr);
 
-    void addMethodToClass(const std::string& className,
-                          const std::string& funcName,
-                          llvm::Function* funcType);
+    void addMethodToClass(
+        const std::string& className,
+        const std::string& funcName,
+        llvm::Function*    funcType);
 
-    std::vector<llvm::Type*> serializeFieldTypes(const llvm::StructType* vtable,
-                                                 const std::string& className);
+    std::vector<llvm::Type*> serializeFieldTypes(
+        const llvm::StructType* vtable, const std::string& className);
     std::vector<llvm::Type*> serializeMethodTypes(const std::string& className);
 
-    llvm::Value* loadVtablePtr(llvm::Value* inst, const std::string& methodName,
-                               const std::string& className);
+    llvm::Value* loadVtablePtr(
+        llvm::Value*       inst,
+        const std::string& methodName,
+        const std::string& className);
 
     llvm::Value* getCallable(const Exp& exp, Env env);
 
-    std::vector<llvm::Value*> genFunctionArgs(const Exp& exp, size_t start,
-                                              Env env);
+    std::vector<llvm::Value*>
+    genFunctionArgs(const Exp& exp, size_t start, Env env);
 
-    std::vector<llvm::Value*> genMethodArgs(llvm::Value* inst, const Exp& exp,
-                                            size_t start, Env env);
+    std::vector<llvm::Value*>
+    genMethodArgs(llvm::Value* inst, const Exp& exp, size_t start, Env env);
 
     ClassInfo* getClassInfoByVarName(const std::string& varName, Env env);
 };

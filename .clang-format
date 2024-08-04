@@ -1,5 +1,13 @@
 BasedOnStyle: LLVM
 IndentWidth: 4
 # west & and *
+# if arg is too long, first one is starting from new line
+AlignAfterOpenBracket: AlwaysBreak
+# next arg is starting from new line
+
+AlignConsecutiveDeclarations: true
+AlignOperands: false
+BinPackArguments: false
+BinPackParameters: false
 PointerAlignment: Left
 
