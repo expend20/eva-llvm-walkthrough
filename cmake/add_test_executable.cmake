@@ -18,6 +18,7 @@ function(add_test_executable_gc TARGET_NAME SOURCE_FILE)
         # set working directory as project root
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         DEPENDS ${SOURCE_FILE}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/test/expected/${TARGET_NAME}.txt
         COMMENT "Building and testing ${TARGET_NAME}"
     )
 endfunction()
