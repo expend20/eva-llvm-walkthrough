@@ -25,11 +25,11 @@ jobs:
     - name: Install libgc
       run: sudo apt-get update && sudo apt-get install -y libgc-dev
 
-    - name: Configure CMake Project
+    - name: Configure CMake Project with Tests enabled
       run: EVA_TESTS=1 cmake -B build
 
     - name: Build Project
       run: cmake --build build --config Release
 
     - name: Run Project
-      run: ./build/eva-llvm
+      run: echo "(printf \"hello world\")\nEOF" | EVA_COUT=1 ./build/eva-llvm
