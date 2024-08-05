@@ -32,4 +32,4 @@ jobs:
       run: cmake --build build --config Release
 
     - name: Run Project
-      run: echo "(printf \"hello world\")\nEOF" | EVA_COUT=1 ./build/eva-llvm
+      run: echo "(printf \"hello world\")" | EVA_COUT=1 ./build/eva-llvm
