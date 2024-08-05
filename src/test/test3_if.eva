@@ -1,0 +1,9 @@
+(var x 0)
+
+(if (< x 2)
+    (if (== x 1)
+        (set x 10)
+        (set x 20))
+    (set x 200))
+(printf "X: %d\n" x)
+

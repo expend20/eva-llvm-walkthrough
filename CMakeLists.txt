@@ -25,13 +25,13 @@ target_link_libraries(eva-llvm
 
 # runt tests only if EVA_TESTS env var is set
 if (DEFINED ENV{EVA_TESTS})
-  add_test_executable(test1_blocks src/test/test1_blocks.cpp)
-  add_test_executable(test2_arith src/test/test2_arith.cpp)
-  add_test_executable(test3_if src/test/test3_if.cpp)
-  add_test_executable(test4_while src/test/test4_while.cpp)
-  add_test_executable(test5_func src/test/test5_func.cpp)
-  add_test_executable_gc(test6_class src/test/test6_class.cpp)
-  add_test_executable_gc(test7_class src/test/test7_class.cpp)
-  add_test_executable_gc(test8_callable src/test/test8_callable.cpp)
+  add_test_executable_gc(test1_blocks src/test/test1_blocks.eva)
+  add_test_executable_gc(test2_arith src/test/test2_arith.eva)
+  add_test_executable_gc(test3_if src/test/test3_if.eva)
+  add_test_executable_gc(test4_while src/test/test4_while.eva)
+  add_test_executable_gc(test5_func src/test/test5_func.eva)
+  add_test_executable_gc(test6_class src/test/test6_class.eva)
+  add_test_executable_gc(test7_class_inheritance src/test/test7_class_inheritance.eva)
+  add_test_executable_gc(test8_callable src/test/test8_callable.eva)
 endif()
 

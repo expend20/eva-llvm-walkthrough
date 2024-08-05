@@ -73,6 +73,8 @@ template <typename T> std::string dumpValueToString(const T* V) {
     std::string              str;
     llvm::raw_string_ostream rso(str);
     V->print(rso);
+    // replace new line with space
+    std::replace(str.begin(), str.end(), '\n', ' ');
     return rso.str();
 }
 
@@ -145,9 +147,9 @@ void EvaLLVM::compile(const Exp& ast) {
     createGlobalVar("VERSION", builder->getInt32(10));
 
     // 2. Compile main body
-    gen(ast, globalEnv);
+    const auto result = gen(ast, globalEnv);
 
-    // just return 0 for now
+    // we could return result.value, but return 0 for now
     builder->CreateRet(builder->getInt32(0));
 }
 

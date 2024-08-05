@@ -1,31 +1,13 @@
-# TODO: add dependencies on test file results change (arguments for diff command)
-function(add_test_executable TARGET_NAME SOURCE_FILE)
-    add_executable(
-        ${TARGET_NAME}
-        ${SOURCE_FILE})
-    target_link_libraries(
-        ${TARGET_NAME}
-        PRIVATE LLVMAnalysis LLVMMC LLVMObject LLVMSupport eva-llvm-lib)
-    add_custom_command(
-        TARGET ${TARGET_NAME}
-        POST_BUILD
-        COMMAND ${TARGET_NAME} ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.ll
-        COMMAND lli ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.ll > ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.txt
-        COMMAND diff ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.txt ${CMAKE_CURRENT_SOURCE_DIR}/src/test/expected/${TARGET_NAME}.txt
-    )
-endfunction()
-
 function(add_test_executable_gc TARGET_NAME SOURCE_FILE)
-    add_executable(
-        ${TARGET_NAME}
-        ${SOURCE_FILE})
-    target_link_libraries(
-        ${TARGET_NAME}
-        PRIVATE LLVMAnalysis LLVMMC LLVMObject LLVMSupport eva-llvm-lib)
-    add_custom_command(
-        TARGET ${TARGET_NAME}
-        POST_BUILD
-        COMMAND ${TARGET_NAME} ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.ll
+    add_custom_target(${TARGET_NAME} ALL
+        # print TARGET_NAME and SOURCE_FILE
+        COMMAND echo TARGET_NAME=${TARGET_NAME} SOURCE_FILE=${SOURCE_FILE}
+        # print debug info
+
+        COMMAND echo Current source directory: ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMAND echo "${CMAKE_CURRENT_BINARY_DIR}/eva-llvm ${SOURCE_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.ll"
+
+        COMMAND ${CMAKE_CURRENT_BINARY_DIR}/eva-llvm ${SOURCE_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.ll
         # TODO: get rid of hardcoded path
         COMMAND clang
             ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.ll
@@ -33,5 +15,9 @@ function(add_test_executable_gc TARGET_NAME SOURCE_FILE)
             -o ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}
         COMMAND ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME} > ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.txt
         COMMAND diff ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.txt ${CMAKE_CURRENT_SOURCE_DIR}/src/test/expected/${TARGET_NAME}.txt
+        # set working directory as project root
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        DEPENDS ${SOURCE_FILE}
+        COMMENT "Building and testing ${TARGET_NAME}"
     )
 endfunction()

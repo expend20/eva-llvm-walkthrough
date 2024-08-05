@@ -1,71 +1,54 @@
-#include <string>
-
 #include "EvaLLVM.h"
 
-int main() {
+#include <string>
+#include <fstream>
+#include <iostream>
+
+std::string read_file(const std::string& filename) {
+    std::ifstream t(filename);
+    std::string line;
+    std::string file_contents;
+    while (std::getline(t, line)) {
+        file_contents += line + "\n";
+    }
+    return file_contents;
+}
+
+std::string read_stdin() {
+    printf("Reading until 'EOF' line\n");
+    std::string line;
+    std::string file_contents;
+    while (std::getline(std::cin, line)) {
+        if (line == "EOF") {
+            break;
+        }
+        file_contents += line + "\n";
+    }
+    return file_contents;
+}
+
+int main(int argc, char *argv[]) {
+
+    /**
+     * Parameters check.
+     */
+    if (argc != 1 && argc != 3) {
+        printf("Usage: %s [{input_filename} {output_filename}]\n", argv[0]);
+        return 1;
+    }
+
     /**
      * The program to be executed.
      */
-    std::string program = R"(
-
-      // Functors - callable objects (aka Closure)
-
-      // Closures (aba Boxes) are syntactic sugar for functors
-      (class Cell null
-        (begin
-          (var value 0)
-          (def constructor (self value) -> Cell
-            (begin
-              (set (prop self value) value)
-              self
-            )
-          )
-        )
-      )
-
-      (class SetFunctor null
-        (begin
-          (var (cell Cell) 0)
-          (def constructor (self (cell Cell)) -> SetFunctor
-            (begin
-              (set (prop self cell) cell)
-              self
-            )
-          )
-          (def __call__ (self value)
-            (begin
-              (var x (prop self cell))
-              (set (prop x value) value)
-              value
-            )
-          )
-        )
-      )
-
-      (class GetFunctor null
-        (begin
-          (var (cell Cell) 0)
-          (def constructor (self (cell Cell)) -> GetFunctor
-            (begin
-              (set (prop self cell) cell)
-              self
-            )
-          )
-          (def __call__ (self)
-            (prop (prop self cell) value)
-          )
-        )
-      )
-
-      (var n (new Cell 10))
-      (var setN (new SetFunctor n))
-      (var getN (new GetFunctor n))
-
-      (printf "n = %d\n" (getN)) // n = 10
-      (printf "setN(20) = %d\n" (setN 20)) // setN(20) = 20
-      (printf "n = %d\n" (getN)) // n = 20
-
-    )";
+    std::string input_data_str;
+    std::string output_filename = "output.ll";
+    if (argc == 3) {
+        input_data_str = read_file(argv[1]);
+        output_filename = argv[2];
+    }
+    else {
+        input_data_str = read_stdin();
+    }
 
     /**
      * Compiler instance.
@@ -75,6 +58,6 @@ int main() {
     /**
      * Generate LLVM IR.
      */
-    vm.eval(program);
+    vm.eval(input_data_str, output_filename);
     return 0;
 }

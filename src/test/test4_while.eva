@@ -1,0 +1,10 @@
+(var x 0)
+
+(while (< x 5)
+    (begin
+        (printf "%d " x)
+        (set x (+ x 1))
+    )
+)
+
+(printf "\nX: %d\n" x)
